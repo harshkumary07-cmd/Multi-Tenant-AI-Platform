@@ -1,0 +1,87 @@
+[project]
+name = "ai-platform"
+version = "0.1.0"
+description = "Production-grade multi-tenant RAG platform"
+requires-python = ">=3.11"
+
+# ============================================================
+# ruff -- linting and import sorting
+# ============================================================
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort (import sorting)
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "T201", # ban print() in application code
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",  # line too long -- handled by formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Allow print() in scripts and tests
+"scripts/*.py" = ["T201"]
+"tests/**/*.py" = ["T201"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# ============================================================
+# mypy -- static type checking
+# ============================================================
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pdfplumber.*",
+    "sentence_transformers.*",
+    "chromadb.*",
+]
+ignore_missing_imports = true
+
+# ============================================================
+# pytest -- test runner configuration
+# ============================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--tb=short",
+    "--strict-markers",
+    "-q",
+]
+markers = [
+    "unit: fast tests with no infrastructure dependencies",
+    "integration: tests requiring ChromaDB and Redis",
+    "api: tests using the FastAPI TestClient",
+    "isolation: tenant isolation security tests (hard CI gate)",
+    "slow: tests excluded from the fast commit gate",
+]
+
+# ============================================================
+# coverage -- configuration for pytest-cov
+# ============================================================
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/config/dependencies.py",
+]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = false
+precision = 2

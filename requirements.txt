@@ -1,0 +1,77 @@
+# ============================================================
+# Production dependencies -- exact versions pinned
+# ============================================================
+# All versions are pinned for reproducible builds.
+# Do NOT use >= without an upper bound in production.
+#
+# Module legend:
+#   [M1]  Module 1 -- Project Scaffold (current)
+#   [M4]  Module 4 -- Vector Database
+#   [M5]  Module 5 -- Document Ingestion
+#   [M6]  Module 6 -- RAG Query Engine
+#   [M8]  Module 8 -- Redis Cache
+# ============================================================
+
+# ----------------------------------------------------------
+# [M1] Core framework
+# ----------------------------------------------------------
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+
+# ----------------------------------------------------------
+# [M1] Configuration and validation
+# ----------------------------------------------------------
+pydantic==2.7.1
+pydantic-settings==2.2.1
+
+# ----------------------------------------------------------
+# [M1] File upload support
+# Required by FastAPI for multipart/form-data.
+# Without it, file uploads silently fail.
+# ----------------------------------------------------------
+python-multipart==0.0.9
+
+# ----------------------------------------------------------
+# [M1] HTTP client
+# Used by FastAPI TestClient and async external HTTP calls.
+# ----------------------------------------------------------
+httpx==0.27.0
+
+# ----------------------------------------------------------
+# [M1] Environment variable loading
+# ----------------------------------------------------------
+python-dotenv==1.0.1
+
+# ----------------------------------------------------------
+# [M4] Vector database -- uncomment when adding Module 4
+# ----------------------------------------------------------
+# chromadb==0.5.3
+
+# ----------------------------------------------------------
+# [M5] Document parsing -- uncomment when adding Module 5
+# ----------------------------------------------------------
+# pdfplumber==0.11.0
+# pandas==2.2.2
+
+# ----------------------------------------------------------
+# [M5] Embeddings -- uncomment when adding Module 5
+# Model download (~80MB) on first use.
+# ----------------------------------------------------------
+# sentence-transformers==3.0.1
+
+# ----------------------------------------------------------
+# [M6] Token counting -- uncomment when adding Module 6
+# Required for 2000-token context window enforcement.
+# ----------------------------------------------------------
+# tiktoken==0.7.0
+
+# ----------------------------------------------------------
+# [M6] LLM providers -- uncomment when adding Module 6
+# ----------------------------------------------------------
+# openai==1.30.0
+# anthropic==0.28.0
+
+# ----------------------------------------------------------
+# [M8] Redis -- uncomment when adding Module 8
+# ----------------------------------------------------------
+# redis==5.0.4

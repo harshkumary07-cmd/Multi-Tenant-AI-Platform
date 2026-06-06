@@ -1,0 +1,31 @@
+# ============================================================
+# Development and CI dependencies
+# ============================================================
+# NOT installed in the production Docker image.
+# Used for local development and CI pipelines.
+#
+# Install everything for development:
+#   pip install -r requirements.txt -r requirements-dev.txt
+# ============================================================
+
+# Pull in production deps
+-r requirements.txt
+
+# ----------------------------------------------------------
+# Testing
+# ----------------------------------------------------------
+pytest==8.2.0
+pytest-asyncio==0.23.6
+pytest-cov==5.0.0
+pytest-mock==3.14.0
+
+# ----------------------------------------------------------
+# Code quality
+# ----------------------------------------------------------
+ruff==0.4.4
+mypy==1.10.0
+
+# ----------------------------------------------------------
+# Type stubs for mypy strict mode
+# ----------------------------------------------------------
+types-redis==4.6.0.20240417

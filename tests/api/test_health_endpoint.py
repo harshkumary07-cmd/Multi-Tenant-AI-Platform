@@ -1,0 +1,93 @@
+"""
+Tests for GET /health.
+
+The health endpoint is the only route fully implemented in Module 1.
+All other route tests are added when their modules are built.
+
+Test coverage:
+    - Happy path: 200 with correct response schema
+    - No authentication required
+    - Correct field types in response
+    - Non-existent paths return 404 (not 500)
+    - All stub routes return 501 with NOT_IMPLEMENTED error code
+"""
+
+from fastapi.testclient import TestClient
+
+
+class TestHealthEndpoint:
+    """Test suite for GET /health."""
+
+    def test_health_returns_200(self, client: TestClient) -> None:
+        """Health endpoint returns HTTP 200 OK."""
+        response = client.get("/health")
+        assert response.status_code == 200
+
+    def test_health_response_has_required_fields(self, client: TestClient) -> None:
+        """Health response contains all required fields."""
+        response = client.get("/health")
+        body = response.json()
+
+        assert "status" in body
+        assert "env" in body
+        assert "version" in body
+
+    def test_health_response_fields_are_strings(self, client: TestClient) -> None:
+        """All health response fields are strings."""
+        response = client.get("/health")
+        body = response.json()
+
+        assert isinstance(body["status"], str)
+        assert isinstance(body["env"], str)
+        assert isinstance(body["version"], str)
+
+    def test_health_status_is_ok(self, client: TestClient) -> None:
+        """Health status field value is 'ok' for a running application."""
+        response = client.get("/health")
+        assert response.json()["status"] == "ok"
+
+    def test_health_requires_no_authentication(self, client: TestClient) -> None:
+        """Health endpoint is reachable without X-User-Id header."""
+        response = client.get("/health")
+        assert response.status_code != 401
+        assert response.status_code != 403
+
+    def test_nonexistent_path_returns_404(self, client: TestClient) -> None:
+        """Requests to unknown paths return 404, not 500."""
+        response = client.get("/this-path-does-not-exist")
+        assert response.status_code == 404
+
+    def test_stub_routes_return_501(self, client: TestClient) -> None:
+        """
+        All planned routes are registered and return 501 (stub).
+
+        Verifies that stub routes are present and return the expected
+        scaffold response rather than 404 (unregistered route).
+        """
+        stub_routes = [
+            ("POST", "/user"),
+            ("POST", "/upload-doc"),
+            ("POST", "/query"),
+            ("GET", "/logs"),
+        ]
+        for method, path in stub_routes:
+            if method == "POST":
+                response = client.post(path)
+            else:
+                response = client.get(path)
+
+            assert response.status_code == 501, (
+                f"{method} {path} returned {response.status_code}, expected 501. "
+                "Stub routes must be registered and return 501 Not Implemented."
+            )
+
+    def test_stub_routes_return_not_implemented_error_code(
+        self, client: TestClient
+    ) -> None:
+        """Stub route responses contain structured NOT_IMPLEMENTED error code."""
+        response = client.post("/user")
+        body = response.json()
+
+        assert "error_code" in body, "Stub response must contain 'error_code' field"
+        assert body["error_code"] == "NOT_IMPLEMENTED"
+        assert "message" in body, "Stub response must contain 'message' field"

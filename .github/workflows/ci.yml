@@ -1,0 +1,20 @@
+# CI Pipeline
+# Fully implemented in Module 10 (Deployment and Hardening).
+# This stub documents the planned job structure.
+#
+# Planned jobs:
+#   lint:            ruff check + mypy  (runs on every push -- commit gate)
+#   unit-tests:      pytest tests/unit/ (runs on every push -- commit gate)
+#   integration:     pytest tests/integration/ tests/api/ (PR gate)
+#   isolation-tests: pytest -k isolation (PR gate -- hard merge block)
+#   docker-build:    docker build validation (PR gate)
+#
+name: CI
+on: [push, pull_request]
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: placeholder
+        run: echo "Full CI pipeline implemented in Module 10"
