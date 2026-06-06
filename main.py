@@ -28,7 +28,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import health, logs, query, upload, user
-from app.config.settings import get_settings
+from app.config.settings import get_settings, get_settings_summary, validate_startup_config
 
 settings = get_settings()
 
@@ -60,7 +60,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ------------------------------------------------------------------ #
     # STARTUP                                                              #
     # ------------------------------------------------------------------ #
-    # M2 -- startup config validation added here
+
+    # M2 -- Semantic startup validation.
+    # Raises ConfigurationError with a plain English message if any
+    # production safety rule is violated. The process exits here before
+    # serving a single request if configuration is invalid.
+    validate_startup_config(settings)
+
+    # M2 -- Log configuration summary (secrets masked).
+    # Emits one log line confirming all active settings at startup.
+    # Useful for operator verification that env vars were picked up correctly.
+    from app.logging.logger import get_logger
+
+    _logger = get_logger(__name__)
+    summary = get_settings_summary(settings)
+    _logger.info("configuration validated -- platform starting | %s", summary)
+
     # M3 -- structured logging initialised here
     # M4 -- ChromaDB client and collection verified here
     # M5 -- embedding model loaded here

@@ -259,3 +259,200 @@ def get_settings() -> Settings:
             application exits before serving a single request.
     """
     return Settings()
+
+
+def validate_startup_config(settings: Settings) -> None:
+    """
+    Perform semantic validation of loaded settings.
+
+    Called from the FastAPI lifespan hook (main.py) immediately after
+    settings are loaded. Checks that configuration values are not just
+    type-correct (pydantic's job) but logically safe for the current
+    environment.
+
+    This function raises ConfigurationError with a plain English message
+    that names the offending field and tells the operator how to fix it.
+    The process exits before serving any request.
+
+    Validation rules:
+
+        Always enforced (all environments):
+            1. CHUNK_OVERLAP_TOKENS must be strictly less than CHUNK_SIZE_TOKENS.
+               If overlap >= chunk size, the chunking service would produce
+               infinite or empty chunks.
+            2. RETRIEVAL_CONFIDENCE_THRESHOLD must be between 0.0 and 1.0
+               exclusive. A threshold of 0.0 accepts every chunk regardless
+               of relevance. A threshold of 1.0 requires exact vector matches
+               which never occur in practice.
+            3. RETRIEVAL_TOP_K must be between 1 and 20 inclusive.
+            4. EMBEDDING_BATCH_SIZE must be a positive integer.
+            5. LLM_TIMEOUT_SECONDS must be positive.
+            6. MAX_UPLOAD_SIZE_MB must be positive.
+            7. UPLOAD_TIMEOUT_SECONDS must be greater than 0.
+
+        Production only (APP_ENV == "production"):
+            8. LLM_API_KEY must not be the placeholder value "changeme".
+               Deploying to production with a placeholder key means every
+               LLM call will fail immediately. Caught here so the error is
+               clear at startup rather than at the first user query.
+            9. LOG_LEVEL must not be "DEBUG". Debug logs may expose internal
+               state and create excessive log volume in production.
+
+    Args:
+        settings: The fully loaded Settings instance to validate.
+
+    Raises:
+        ConfigurationError: If any validation rule is violated.
+            The message names the field and states how to fix it.
+
+    Example:
+        from app.config.settings import get_settings, validate_startup_config
+
+        settings = get_settings()
+        validate_startup_config(settings)  # raises ConfigurationError or passes
+    """
+    # Import here to avoid circular imports at module load time.
+    # validate_startup_config is only called at runtime, not at import time.
+    from app.models.exceptions import ConfigurationError
+
+    errors: list[str] = []
+
+    # ------------------------------------------------------------------
+    # Rule 1: chunk overlap must be less than chunk size
+    # ------------------------------------------------------------------
+    if settings.CHUNK_OVERLAP_TOKENS >= settings.CHUNK_SIZE_TOKENS:
+        errors.append(
+            f"CHUNK_OVERLAP_TOKENS ({settings.CHUNK_OVERLAP_TOKENS}) must be "
+            f"strictly less than CHUNK_SIZE_TOKENS ({settings.CHUNK_SIZE_TOKENS}). "
+            "Overlap >= chunk size would produce infinite or empty chunks."
+        )
+
+    # ------------------------------------------------------------------
+    # Rule 2: confidence threshold must be in open interval (0.0, 1.0)
+    # ------------------------------------------------------------------
+    if not (0.0 < settings.RETRIEVAL_CONFIDENCE_THRESHOLD < 1.0):
+        errors.append(
+            f"RETRIEVAL_CONFIDENCE_THRESHOLD ({settings.RETRIEVAL_CONFIDENCE_THRESHOLD}) "
+            "must be between 0.0 and 1.0 exclusive. "
+            "0.0 accepts every chunk; 1.0 matches nothing in practice."
+        )
+
+    # ------------------------------------------------------------------
+    # Rule 3: top_k must be 1-20
+    # ------------------------------------------------------------------
+    if not (1 <= settings.RETRIEVAL_TOP_K <= 20):
+        errors.append(
+            f"RETRIEVAL_TOP_K ({settings.RETRIEVAL_TOP_K}) must be between 1 and 20. "
+            "Values above 20 produce excessively large context windows."
+        )
+
+    # ------------------------------------------------------------------
+    # Rule 4: embedding batch size must be positive
+    # ------------------------------------------------------------------
+    if settings.EMBEDDING_BATCH_SIZE < 1:
+        errors.append(
+            f"EMBEDDING_BATCH_SIZE ({settings.EMBEDDING_BATCH_SIZE}) must be >= 1."
+        )
+
+    # ------------------------------------------------------------------
+    # Rule 5: LLM timeout must be positive
+    # ------------------------------------------------------------------
+    if settings.LLM_TIMEOUT_SECONDS < 1:
+        errors.append(
+            f"LLM_TIMEOUT_SECONDS ({settings.LLM_TIMEOUT_SECONDS}) must be >= 1."
+        )
+
+    # ------------------------------------------------------------------
+    # Rule 6: upload size limit must be positive
+    # ------------------------------------------------------------------
+    if settings.MAX_UPLOAD_SIZE_MB < 1:
+        errors.append(
+            f"MAX_UPLOAD_SIZE_MB ({settings.MAX_UPLOAD_SIZE_MB}) must be >= 1."
+        )
+
+    # ------------------------------------------------------------------
+    # Rule 7: upload timeout must be positive
+    # ------------------------------------------------------------------
+    if settings.UPLOAD_TIMEOUT_SECONDS < 1:
+        errors.append(
+            f"UPLOAD_TIMEOUT_SECONDS ({settings.UPLOAD_TIMEOUT_SECONDS}) must be >= 1."
+        )
+
+    # ------------------------------------------------------------------
+    # Production-only rules
+    # ------------------------------------------------------------------
+    if settings.APP_ENV == "production":
+
+        # Rule 8: LLM API key must not be the placeholder
+        if settings.LLM_API_KEY.get_secret_value() == "changeme":
+            errors.append(
+                "LLM_API_KEY is set to the placeholder value 'changeme'. "
+                "Set a real API key before deploying to production. "
+                "Inject it via your secrets manager or as an environment variable."
+            )
+
+        # Rule 9: debug logging must not be active in production
+        if settings.LOG_LEVEL == "DEBUG":
+            errors.append(
+                "LOG_LEVEL is set to 'DEBUG' in a production environment. "
+                "Debug logs may expose internal state and create excessive volume. "
+                "Set LOG_LEVEL to 'INFO' or higher for production."
+            )
+
+    # ------------------------------------------------------------------
+    # Raise a single error aggregating all violations found
+    # ------------------------------------------------------------------
+    if errors:
+        bullet_list = "\n  - ".join(errors)
+        raise ConfigurationError(
+            f"Application startup aborted: {len(errors)} configuration "
+            f"error(s) found:\n  - {bullet_list}"
+        )
+
+
+def get_settings_summary(settings: Settings) -> dict[str, str | int | float | bool]:
+    """
+    Return a sanitised dictionary of current settings for startup logging.
+
+    Safe to log: all fields are included but LLM_API_KEY is masked.
+    Calling str() on a SecretStr field automatically produces "**********".
+
+    Use this in the lifespan startup hook to emit a single structured log
+    line confirming the active configuration without exposing secrets.
+
+    Args:
+        settings: The validated Settings instance.
+
+    Returns:
+        dict: Flat key-value mapping of all settings.
+              LLM_API_KEY value is always "**********".
+
+    Example:
+        summary = get_settings_summary(settings)
+        logger.info("configuration loaded", extra=summary)
+    """
+    return {
+        "APP_ENV": settings.APP_ENV,
+        "APP_HOST": settings.APP_HOST,
+        "APP_PORT": settings.APP_PORT,
+        "LOG_LEVEL": settings.LOG_LEVEL,
+        "CHROMA_HOST": settings.CHROMA_HOST,
+        "CHROMA_PORT": settings.CHROMA_PORT,
+        "CHROMA_COLLECTION_NAME": settings.CHROMA_COLLECTION_NAME,
+        "REDIS_HOST": settings.REDIS_HOST,
+        "REDIS_PORT": settings.REDIS_PORT,
+        "REDIS_CACHE_TTL_SECONDS": settings.REDIS_CACHE_TTL_SECONDS,
+        "REDIS_EMPTY_RESULT_TTL_SECONDS": settings.REDIS_EMPTY_RESULT_TTL_SECONDS,
+        "EMBEDDING_MODEL_NAME": settings.EMBEDDING_MODEL_NAME,
+        "EMBEDDING_BATCH_SIZE": settings.EMBEDDING_BATCH_SIZE,
+        "CHUNK_SIZE_TOKENS": settings.CHUNK_SIZE_TOKENS,
+        "CHUNK_OVERLAP_TOKENS": settings.CHUNK_OVERLAP_TOKENS,
+        "RETRIEVAL_TOP_K": settings.RETRIEVAL_TOP_K,
+        "RETRIEVAL_CONFIDENCE_THRESHOLD": settings.RETRIEVAL_CONFIDENCE_THRESHOLD,
+        "LLM_PROVIDER": settings.LLM_PROVIDER,
+        "LLM_MODEL_NAME": settings.LLM_MODEL_NAME,
+        "LLM_API_KEY": str(settings.LLM_API_KEY),  # always "**********"
+        "LLM_TIMEOUT_SECONDS": settings.LLM_TIMEOUT_SECONDS,
+        "MAX_UPLOAD_SIZE_MB": settings.MAX_UPLOAD_SIZE_MB,
+        "UPLOAD_TIMEOUT_SECONDS": settings.UPLOAD_TIMEOUT_SECONDS,
+    }
