@@ -29,6 +29,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import health, logs, query, upload, user
 from app.config.settings import get_settings, get_settings_summary, validate_startup_config
+from app.logging.logger import configure_logging, get_logger
+from app.middleware.request_logger import RequestLoggerMiddleware
 
 settings = get_settings()
 
@@ -61,22 +63,25 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # STARTUP                                                              #
     # ------------------------------------------------------------------ #
 
+    # M3 -- Configure structured JSON logging before anything else.
+    configure_logging(settings.LOG_LEVEL)
+    _logger = get_logger(__name__)
+
     # M2 -- Semantic startup validation.
-    # Raises ConfigurationError with a plain English message if any
-    # production safety rule is violated. The process exits here before
-    # serving a single request if configuration is invalid.
     validate_startup_config(settings)
 
-    # M2 -- Log configuration summary (secrets masked).
-    # Emits one log line confirming all active settings at startup.
-    # Useful for operator verification that env vars were picked up correctly.
-    from app.logging.logger import get_logger
-
-    _logger = get_logger(__name__)
+    # M3 -- Emit structured startup log with masked settings summary.
     summary = get_settings_summary(settings)
-    _logger.info("configuration validated -- platform starting | %s", summary)
-
-    # M3 -- structured logging initialised here
+    _logger.info(
+    "platform starting",
+    extra={
+        "event": "PLATFORM_STARTUP",
+        "app_env": settings.APP_ENV,
+        "log_level": settings.LOG_LEVEL,
+        "llm_provider": settings.LLM_PROVIDER,
+        "settings_summary": summary,
+    },
+    )
     # M4 -- ChromaDB client and collection verified here
     # M5 -- embedding model loaded here
     # M8 -- Redis pool initialised here
@@ -86,6 +91,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ------------------------------------------------------------------ #
     # SHUTDOWN                                                             #
     # ------------------------------------------------------------------ #
+
+    _logger.info(
+    "platform shutting down",
+    extra={"event": "PLATFORM_SHUTDOWN"},
+    )
+
     # M4 -- ChromaDB client closed here
     # M8 -- Redis pool closed here
 
@@ -141,7 +152,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     # M9 -- ErrorHandlerMiddleware registered here
-    # M3 -- RequestLoggerMiddleware registered here
+
+    # M3 -- RequestLoggerMiddleware: logs every request entry/exit
+    application.add_middleware(RequestLoggerMiddleware)
+
     # M9 -- TenantContextMiddleware registered here (last = executes first)
 
     # ------------------------------------------------------------------
