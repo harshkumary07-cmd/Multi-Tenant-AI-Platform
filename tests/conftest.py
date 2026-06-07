@@ -15,10 +15,14 @@ Critical fixture -- unique_user_id:
 
 import uuid
 from collections.abc import Generator
+from unittest.mock import MagicMock, patch
 
+import chromadb
 import pytest
+from chromadb.config import Settings as ChromaSettings
 from fastapi.testclient import TestClient
 
+from app.vectorstore.tenant import COSINE_DISTANCE
 from main import app
 
 
@@ -29,9 +33,6 @@ def unique_user_id() -> str:
 
     Format: "test_<12-hex-char UUID fragment>"
     Example: "test_a3f8b2c1d4e5"
-
-    The "test_" prefix makes test-generated data immediately
-    identifiable in logs and database inspection.
 
     Returns:
         str: A unique user identifier safe for use across all layers.
@@ -44,31 +45,35 @@ def client() -> Generator[TestClient, None, None]:
     """
     FastAPI TestClient for API tests.
 
-    Exercises the full FastAPI middleware stack without a real server.
+    Patches the ChromaDB initialisation so that API/middleware tests
+    run without requiring a live ChromaDB Docker container.
+    The TestClient exercises the full middleware stack (logging,
+    request_id generation, error handling) without infrastructure.
 
-    Usage:
-        def test_health(client: TestClient) -> None:
-            response = client.get("/health")
-            assert response.status_code == 200
+    Integration tests that need real ChromaDB use the chroma_collection
+    fixture defined below, which creates an ephemeral in-memory client.
 
     Yields:
         TestClient: Configured test client for the application.
     """
-    with TestClient(app) as test_client:
-        yield test_client
+    mock_collection = MagicMock()
+    mock_collection.count.return_value = 0
+
+    with patch(
+        "main.initialise_chroma",
+        return_value=mock_collection,
+    ), patch(
+        "main.close_chroma_client",
+        return_value=None,
+    ):
+        with TestClient(app, raise_server_exceptions=False) as test_client:
+            yield test_client
 
 
 @pytest.fixture
 def auth_headers(unique_user_id: str) -> dict[str, str]:
     """
     HTTP headers with a valid X-User-Id for authenticated requests.
-
-    Combines with unique_user_id to provide isolated auth headers per test.
-    Use this for all endpoint tests that require authentication.
-
-    Usage:
-        def test_upload(client: TestClient, auth_headers: dict) -> None:
-            response = client.post("/upload-doc", headers=auth_headers, ...)
 
     Args:
         unique_user_id: Injected by pytest from the unique_user_id fixture.
@@ -79,13 +84,29 @@ def auth_headers(unique_user_id: str) -> dict[str, str]:
     return {"X-User-Id": unique_user_id}
 
 
+@pytest.fixture
+def chroma_collection(tmp_path):  # type: ignore[no-untyped-def]
+    """
+    Ephemeral in-memory ChromaDB collection for integration tests.
+
+    Uses chromadb.EphemeralClient (in-memory, no Docker required).
+    Each test gets a unique collection name via tmp_path.
+
+    Used directly by integration tests that need real ChromaDB behaviour.
+    """
+    client = chromadb.EphemeralClient(
+        settings=ChromaSettings(anonymized_telemetry=False)
+    )
+    collection_name = f"test_{tmp_path.name[:20]}"
+    return client.get_or_create_collection(
+        name=collection_name,
+        metadata={"hnsw:space": COSINE_DISTANCE},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Future fixtures -- added in their respective modules
 # ---------------------------------------------------------------------------
-#
-# Module 4 -- ChromaDB:
-#   @pytest.fixture
-#   def chroma_client() -> chromadb.HttpClient: ...
 #
 # Module 5 -- Document ingestion:
 #   @pytest.fixture

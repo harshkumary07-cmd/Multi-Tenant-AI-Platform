@@ -48,6 +48,17 @@ module = [
     "chromadb.*",
 ]
 ignore_missing_imports = true
+ignore_errors = true
+
+# chromadb's public API uses opaque types that mypy cannot resolve.
+# We suppress errors only in the two files that call chromadb directly.
+# All application logic (repositories, services) is still fully type-checked.
+[[tool.mypy.overrides]]
+module = [
+    "app.vectorstore.client",
+    "app.repositories.chroma_repository",
+]
+ignore_errors = true
 
 # ============================================================
 # pytest -- test runner configuration

@@ -31,6 +31,7 @@ from app.api.routes import health, logs, query, upload, user
 from app.config.settings import get_settings, get_settings_summary, validate_startup_config
 from app.logging.logger import configure_logging, get_logger
 from app.middleware.request_logger import RequestLoggerMiddleware
+from app.vectorstore.client import close_chroma_client, initialise_chroma
 
 settings = get_settings()
 
@@ -64,25 +65,42 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ------------------------------------------------------------------ #
 
     # M3 -- Configure structured JSON logging before anything else.
+    # This ensures that the M2 config summary and all subsequent startup
+    # log lines are emitted as structured JSON, not plain text.
     configure_logging(settings.LOG_LEVEL)
     _logger = get_logger(__name__)
 
     # M2 -- Semantic startup validation.
+    # Raises ConfigurationError if any production safety rule is violated.
+    # The process exits here before serving a single request.
     validate_startup_config(settings)
 
     # M3 -- Emit structured startup log with masked settings summary.
     summary = get_settings_summary(settings)
     _logger.info(
-    "platform starting",
-    extra={
-        "event": "PLATFORM_STARTUP",
-        "app_env": settings.APP_ENV,
-        "log_level": settings.LOG_LEVEL,
-        "llm_provider": settings.LLM_PROVIDER,
-        "settings_summary": summary,
-    },
+        "platform starting",
+        extra={
+            "event": "PLATFORM_STARTUP",
+            "app_env": settings.APP_ENV,
+            "log_level": settings.LOG_LEVEL,
+            "llm_provider": settings.LLM_PROVIDER,
+            "settings_summary": summary,
+        },
     )
-    # M4 -- ChromaDB client and collection verified here
+
+    # M4 -- Initialise ChromaDB: connect, verify collection, validate distance metric.
+    # Raises VectorStoreError if ChromaDB is unreachable or misconfigured.
+    # The process exits here before serving requests if the vector store is unavailable.
+    chroma_collection = initialise_chroma(settings)
+    _logger.info(
+        "chromadb ready",
+        extra={
+            "event": "CHROMA_READY",
+            "collection": settings.CHROMA_COLLECTION_NAME,
+            "collection_count": chroma_collection.count(),
+        },
+    )
+
     # M5 -- embedding model loaded here
     # M8 -- Redis pool initialised here
 
@@ -92,12 +110,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # SHUTDOWN                                                             #
     # ------------------------------------------------------------------ #
 
+    # M3 -- Structured shutdown log line.
     _logger.info(
-    "platform shutting down",
-    extra={"event": "PLATFORM_SHUTDOWN"},
+        "platform shutting down",
+        extra={"event": "PLATFORM_SHUTDOWN"},
     )
-
-    # M4 -- ChromaDB client closed here
+    # M4 -- Close ChromaDB HTTP client and release connection pool.
+    close_chroma_client()
     # M8 -- Redis pool closed here
 
 
@@ -142,7 +161,6 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------
     # Middleware registration
     # Add in reverse execution order (last registered = first to execute).
-    # M3 and M9 will add RequestLoggerMiddleware and TenantContextMiddleware.
     # ------------------------------------------------------------------
     application.add_middleware(
         CORSMiddleware,
@@ -152,10 +170,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     # M9 -- ErrorHandlerMiddleware registered here
-
     # M3 -- RequestLoggerMiddleware: logs every request entry/exit
     application.add_middleware(RequestLoggerMiddleware)
-
     # M9 -- TenantContextMiddleware registered here (last = executes first)
 
     # ------------------------------------------------------------------
