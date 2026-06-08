@@ -58,6 +58,7 @@ module = [
     "app.vectorstore.client",
     "app.repositories.chroma_repository",
     "app.services.embedding_service",
+    "app.services.llm_service",
 ]
 ignore_errors = true
 
