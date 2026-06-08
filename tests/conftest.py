@@ -15,6 +15,7 @@ Critical fixture -- unique_user_id:
 
 import uuid
 from collections.abc import Generator
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import chromadb
@@ -65,6 +66,9 @@ def client() -> Generator[TestClient, None, None]:
     ), patch(
         "main.close_chroma_client",
         return_value=None,
+    ), patch(
+        "main.initialise_embedding_model",
+        return_value=None,
     ):
         with TestClient(app, raise_server_exceptions=False) as test_client:
             yield test_client
@@ -105,16 +109,48 @@ def chroma_collection(tmp_path):  # type: ignore[no-untyped-def]
 
 
 # ---------------------------------------------------------------------------
+# Module 5 -- Document ingestion fixtures
+# ---------------------------------------------------------------------------
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture
+def sample_pdf_bytes() -> bytes:
+    """
+    Real binary PDF with known text content.
+
+    Contains two pages with financial report text including the phrases:
+    'revenue', '2.4 billion', 'cloud services', 'Asia-Pacific'.
+    Used by ingestion pipeline integration tests.
+    """
+    return (FIXTURES_DIR / "sample.pdf").read_bytes()
+
+
+@pytest.fixture
+def sample_csv_bytes() -> bytes:
+    """
+    Real CSV with known financial data (25 rows, 5 columns).
+
+    Columns: quarter, revenue_usd_millions, region, growth_pct, product.
+    Contains 'Q3 2024' and other known values for assertion.
+    """
+    return (FIXTURES_DIR / "sample.csv").read_bytes()
+
+
+@pytest.fixture
+def corrupt_pdf_bytes() -> bytes:
+    """
+    File whose first bytes are NOT '%PDF-'.
+
+    Used to test CORRUPT_FILE error handling and partial write cleanup.
+    """
+    return (FIXTURES_DIR / "corrupt.pdf").read_bytes()
+
+
+# ---------------------------------------------------------------------------
 # Future fixtures -- added in their respective modules
 # ---------------------------------------------------------------------------
-#
-# Module 5 -- Document ingestion:
-#   @pytest.fixture
-#   def sample_pdf_bytes() -> bytes: ...   # reads tests/fixtures/sample.pdf
-#   @pytest.fixture
-#   def sample_csv_bytes() -> bytes: ...   # reads tests/fixtures/sample.csv
-#   @pytest.fixture
-#   def corrupt_pdf_bytes() -> bytes: ...  # reads tests/fixtures/corrupt.pdf
 #
 # Module 8 -- Redis:
 #   @pytest.fixture

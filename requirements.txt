@@ -21,7 +21,7 @@ uvicorn[standard]==0.29.0
 # ----------------------------------------------------------
 # [M1] Configuration and validation
 # ----------------------------------------------------------
-pydantic==2.7.1
+pydantic==2.7.4
 pydantic-settings==2.2.1
 
 # ----------------------------------------------------------
@@ -48,16 +48,22 @@ python-dotenv==1.0.1
 chromadb==0.5.3
 
 # ----------------------------------------------------------
-# [M5] Document parsing -- uncomment when adding Module 5
+# [M5] Document parsing -- added in Module 5
 # ----------------------------------------------------------
-# pdfplumber==0.11.0
-# pandas==2.2.2
+pdfplumber==0.11.0
+pandas==2.2.2
 
 # ----------------------------------------------------------
-# [M5] Embeddings -- uncomment when adding Module 5
+# [M5] Text splitting -- added in Module 5
+# RecursiveCharacterTextSplitter only; no full LangChain required.
+# ----------------------------------------------------------
+langchain-text-splitters==0.2.2
+
+# ----------------------------------------------------------
+# [M5] Embeddings -- added in Module 5
 # Model download (~80MB) on first use.
 # ----------------------------------------------------------
-# sentence-transformers==3.0.1
+sentence-transformers==3.0.1
 
 # ----------------------------------------------------------
 # [M6] Token counting -- uncomment when adding Module 6

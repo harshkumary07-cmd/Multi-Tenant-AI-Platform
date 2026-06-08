@@ -1,2 +1,26 @@
-col_a,col_b,col_c
-Placeholder -- replace with real CSV before Module 5
+quarter,revenue_usd_millions,region,growth_pct,product
+Q1 2024,2400,APAC,34.0,cloud
+Q2 2024,2250,EMEA,25.0,enterprise
+Q3 2024,2400,APAC,37.1,cloud
+Q4 2023,2100,AMER,31.3,smb
+Q1 2023,1950,APAC,30.0,cloud
+Q2 2023,1800,EMEA,28.6,enterprise
+Q3 2023,1750,AMER,25.0,smb
+Q4 2022,1600,APAC,20.0,cloud
+Q1 2022,1500,EMEA,15.4,enterprise
+Q2 2022,1450,AMER,15.1,smb
+Q3 2022,1400,APAC,14.3,cloud
+Q4 2021,1300,EMEA,13.0,enterprise
+Q1 2021,1200,AMER,12.5,smb
+Q2 2021,1150,APAC,11.7,cloud
+Q3 2021,1100,EMEA,10.0,enterprise
+Q4 2020,980,AMER,9.0,smb
+Q1 2020,920,APAC,8.5,cloud
+Q2 2020,870,EMEA,8.0,enterprise
+Q3 2020,910,AMER,7.5,smb
+Q4 2019,860,APAC,7.0,cloud
+Q1 2019,820,EMEA,6.5,enterprise
+Q2 2019,800,AMER,6.0,smb
+Q3 2019,780,APAC,5.5,cloud
+Q4 2018,750,EMEA,5.0,enterprise
+Q1 2018,710,AMER,4.5,smb

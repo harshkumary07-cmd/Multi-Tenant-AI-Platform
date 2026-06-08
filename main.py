@@ -31,6 +31,7 @@ from app.api.routes import health, logs, query, upload, user
 from app.config.settings import get_settings, get_settings_summary, validate_startup_config
 from app.logging.logger import configure_logging, get_logger
 from app.middleware.request_logger import RequestLoggerMiddleware
+from app.services.embedding_service import initialise_embedding_model
 from app.vectorstore.client import close_chroma_client, initialise_chroma
 
 settings = get_settings()
@@ -101,7 +102,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         },
     )
 
-    # M5 -- embedding model loaded here
+    # M5 -- Load embedding model singleton.
+    # This triggers a ~80MB model download on first run if not cached.
+    # Subsequent startups load from ~/.cache/huggingface/ in ~2-4 seconds.
+    initialise_embedding_model(settings.EMBEDDING_MODEL_NAME)
+
     # M8 -- Redis pool initialised here
 
     yield
