@@ -59,6 +59,8 @@ module = [
     "app.repositories.chroma_repository",
     "app.services.embedding_service",
     "app.services.llm_service",
+    "app.cache.redis_client",
+    "app.cache.cache_service",
 ]
 ignore_errors = true
 

@@ -60,6 +60,8 @@ def client() -> Generator[TestClient, None, None]:
     mock_collection = MagicMock()
     mock_collection.count.return_value = 0
 
+    mock_redis = MagicMock()
+
     with patch(
         "main.initialise_chroma",
         return_value=mock_collection,
@@ -68,6 +70,12 @@ def client() -> Generator[TestClient, None, None]:
         return_value=None,
     ), patch(
         "main.initialise_embedding_model",
+        return_value=None,
+    ), patch(
+        "main.initialise_redis",
+        return_value=mock_redis,
+    ), patch(
+        "main.close_redis_client",
         return_value=None,
     ):
         with TestClient(app, raise_server_exceptions=False) as test_client:

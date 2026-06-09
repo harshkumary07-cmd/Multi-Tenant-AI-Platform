@@ -9,6 +9,7 @@ Models added per module:
     M4: chunk.py         -- Chunk (for ingestion) and ChunkResult (for retrieval)
     M5: document.py      -- DocumentRecord (result of successful ingestion)
     M6: query_result.py  -- QueryResult, SourceReference, TokenUsage
+    M8: query_result.py  -- cache_hit: bool field added to QueryResult
 
 Domain exceptions raised by services are defined in exceptions.py.
 Pydantic HTTP contracts (request/response schemas) live in app/schemas/.

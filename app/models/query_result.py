@@ -99,6 +99,9 @@ class QueryResult:
         token_usage:      Token consumption for this query.
         latency_ms:       Total wall-clock time from query entry to result ready.
         no_result_reason: Set when answer is None. Explains why no answer was given.
+        cache_hit:        True when this result was served from Redis cache.
+                          Always False on results produced by the pipeline.
+                          Set to True by CacheService._deserialise_result().
         timestamp:        UTC timestamp when the result was produced.
     """
 
@@ -112,6 +115,7 @@ class QueryResult:
     token_usage: TokenUsage
     latency_ms: int
     no_result_reason: str | None = None
+    cache_hit: bool = False
     timestamp: datetime = field(
         default_factory=lambda: datetime.now(tz=UTC)
     )

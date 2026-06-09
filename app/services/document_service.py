@@ -34,7 +34,7 @@ Dependency injection:
 """
 
 import uuid
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from app.config.settings import Settings
 from app.logging.logger import get_logger
@@ -51,6 +51,9 @@ from app.rag.parsers.pdf_parser import parse_pdf
 from app.repositories.chroma_repository import ChromaRepository
 from app.services.chunking_service import chunk_text
 from app.services.embedding_service import embed_chunks
+
+if TYPE_CHECKING:
+    from app.cache.cache_service import CacheService
 
 logger = get_logger(__name__)
 
@@ -129,17 +132,24 @@ class DocumentService:
     are confirmed stored in ChromaDB.
 
     Args:
-        repository: ChromaRepository instance for vector storage.
-        settings:   Application settings for chunk size, model name, etc.
+        repository:    ChromaRepository instance for vector storage.
+        settings:      Application settings for chunk size, model name, etc.
+        cache_service: Optional CacheService. When provided, all cached query
+                       results for the uploading user are invalidated after
+                       successful ingestion so subsequent queries use the
+                       freshly stored content. When absent, invalidation is
+                       skipped silently (backward compatible with M1-M7 tests).
     """
 
     def __init__(
         self,
         repository: ChromaRepository,
         settings: Settings,
+        cache_service: "CacheService | None" = None,
     ) -> None:
         self._repository = repository
         self._settings = settings
+        self._cache_service = cache_service
 
     def ingest(
         self,
@@ -243,7 +253,14 @@ class DocumentService:
             # ----------------------------------------------------------
             # Stage 6: Cache invalidation (Module 8 wires this)
             # ----------------------------------------------------------
-            # cache_service.invalidate_user_cache(user_id)  -- wired in M8
+            # ----------------------------------------------------------
+            # Stage 6: Cache invalidation
+            # ----------------------------------------------------------
+            # Invalidate all cached query results for this user so that
+            # subsequent queries reflect the newly ingested document.
+            # Skipped silently when no cache_service is configured.
+            if self._cache_service is not None:
+                self._cache_service.invalidate_user_cache(user_id)
             tracker.checkpoint("cache_invalidate")
 
         except (

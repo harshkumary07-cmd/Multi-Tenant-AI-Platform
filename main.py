@@ -28,6 +28,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import health, logs, query, upload, user
+from app.cache.redis_client import close_redis_client, initialise_redis
 from app.config.settings import get_settings, get_settings_summary, validate_startup_config
 from app.logging.logger import configure_logging, get_logger
 from app.middleware.request_logger import RequestLoggerMiddleware
@@ -107,7 +108,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Subsequent startups load from ~/.cache/huggingface/ in ~2-4 seconds.
     initialise_embedding_model(settings.EMBEDDING_MODEL_NAME)
 
-    # M8 -- Redis pool initialised here
+    # M8 -- Initialise Redis connection pool and verify connectivity.
+    initialise_redis(settings.REDIS_HOST, settings.REDIS_PORT)
+    _logger.info(
+        "redis ready",
+        extra={
+            "event": "REDIS_READY",
+            "host": settings.REDIS_HOST,
+            "port": settings.REDIS_PORT,
+        },
+    )
 
     yield
 
@@ -122,7 +132,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     # M4 -- Close ChromaDB HTTP client and release connection pool.
     close_chroma_client()
-    # M8 -- Redis pool closed here
+    # M8 -- Close Redis connection pool.
+    close_redis_client()
 
 
 # ---------------------------------------------------------------------------
