@@ -1,7 +1,13 @@
 """
-Routing intelligence layer (implemented in M7).
+Routing intelligence layer -- implemented in Module 7.
 
-The Router Agent (router_agent.py) decides DIRECT vs RETRIEVE for each query.
-Decision is deterministic and rule-based -- no LLM call required.
-Agents import from services only; never from api/ or repositories/ directly.
+Modules:
+    router_agent.py -- RouterAgent class with decide() method;
+                       RouteDecision dataclass (route + reason);
+                       five ordered deterministic routing rules.
+
+The Router Agent decides DIRECT vs RETRIEVE for each query.
+Decision is rule-based -- no LLM call required.
+Agents import from repositories and services only;
+never from app.api.
 """

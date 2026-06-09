@@ -39,6 +39,7 @@ from app.rag.prompt_builder import (
     build_messages,
     estimate_prompt_tokens,
 )
+from app.rag.token_utils import estimate_messages_tokens, estimate_tokens, tokens_to_char_limit
 from app.services.llm_service import (
     AnthropicProvider,
     LLMProvider,
@@ -205,6 +206,75 @@ class TestQueryResult:
         result = self._make()
         after = datetime.now(tz=UTC)
         assert before - timedelta(seconds=1) <= result.timestamp <= after
+
+
+# ---------------------------------------------------------------------------
+# Token utilities
+# ---------------------------------------------------------------------------
+
+
+class TestTokenUtils:
+    """token_utils is the single source of truth for all token arithmetic."""
+
+    def test_estimate_tokens_empty_string(self) -> None:
+        """Empty string has zero tokens."""
+        assert estimate_tokens("") == 0
+
+    def test_estimate_tokens_returns_integer(self) -> None:
+        """estimate_tokens always returns an int."""
+        result = estimate_tokens("some text here")
+        assert isinstance(result, int)
+
+    def test_estimate_tokens_scales_with_length(self) -> None:
+        """Longer text produces a higher estimate."""
+        short = estimate_tokens("hi")
+        long = estimate_tokens("A" * 400)
+        assert long > short
+
+    def test_estimate_tokens_non_negative(self) -> None:
+        """Token estimate is always >= 0."""
+        assert estimate_tokens("x") >= 0
+
+    def test_estimate_tokens_four_chars_per_token(self) -> None:
+        """Internal approximation: 4 chars = 1 token."""
+        assert estimate_tokens("A" * 400) == 100
+        assert estimate_tokens("A" * 4) == 1
+        assert estimate_tokens("A" * 8) == 2
+
+    def test_estimate_messages_tokens_empty_list(self) -> None:
+        """Empty message list has zero tokens."""
+        assert estimate_messages_tokens([]) == 0
+
+    def test_estimate_messages_tokens_sums_content(self) -> None:
+        """Sums estimate_tokens over all message contents."""
+        messages = [
+            {"role": "system", "content": "A" * 400},
+            {"role": "user",   "content": "A" * 400},
+        ]
+        assert estimate_messages_tokens(messages) == 200
+
+    def test_estimate_messages_tokens_ignores_missing_content(self) -> None:
+        """Messages without a content key contribute zero tokens."""
+        messages = [{"role": "system"}]
+        assert estimate_messages_tokens(messages) == 0
+
+    def test_tokens_to_char_limit_scales_linearly(self) -> None:
+        """Character limit is proportional to the token budget."""
+        assert tokens_to_char_limit(100) == tokens_to_char_limit(50) * 2
+
+    def test_tokens_to_char_limit_zero(self) -> None:
+        """Zero token budget produces zero character limit."""
+        assert tokens_to_char_limit(0) == 0
+
+    def test_tokens_to_char_limit_positive(self) -> None:
+        """Positive token budget produces positive character limit."""
+        assert tokens_to_char_limit(2000) > 0
+
+    def test_prompt_builder_estimate_delegates_to_token_utils(self) -> None:
+        """estimate_prompt_tokens in prompt_builder routes through token_utils."""
+        messages = build_messages("context text here", "what is revenue?")
+        # Both functions must agree
+        assert estimate_prompt_tokens(messages) == estimate_messages_tokens(messages)
 
 
 # ---------------------------------------------------------------------------

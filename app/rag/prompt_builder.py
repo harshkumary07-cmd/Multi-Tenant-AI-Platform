@@ -28,6 +28,7 @@ evaluations across multiple model families.
 """
 
 from app.logging.logger import get_logger
+from app.rag.token_utils import estimate_messages_tokens
 
 logger = get_logger(__name__)
 
@@ -49,6 +50,18 @@ SYSTEM_PROMPT = (
     "information was found, using the format [Source: filename, chunk N]. "
     "Be concise and accurate. Do not speculate or extrapolate beyond what "
     "the context explicitly states."
+)
+
+# System prompt for DIRECT routing -- general knowledge answers.
+# Deliberately different from SYSTEM_PROMPT: no context block is provided,
+# and the model is permitted to use its training knowledge.
+# Applied when the Router Agent decides DIRECT (no documents, or strong
+# general-knowledge signal).
+DIRECT_SYSTEM_PROMPT = (
+    "You are a knowledgeable and helpful assistant. "
+    "Answer the user's question accurately and concisely using your general knowledge. "
+    "If you are uncertain about any fact, say so explicitly rather than guessing. "
+    "Do not fabricate information."
 )
 
 # Template for the user message. The context is wrapped in XML-style tags.
@@ -99,13 +112,47 @@ def build_messages(context_text: str, query: str) -> list[Message]:
     return messages
 
 
+def build_direct_messages(query: str) -> list[Message]:
+    """
+    Build the message list for a DIRECT (no-retrieval) LLM call.
+
+    Used by RoutedQueryService when the Router Agent decides DIRECT.
+    No context block is included -- the model answers from general knowledge.
+
+    The system prompt is DIRECT_SYSTEM_PROMPT, which is deliberately
+    different from SYSTEM_PROMPT. SYSTEM_PROMPT forbids general knowledge;
+    DIRECT_SYSTEM_PROMPT permits it.
+
+    Args:
+        query: The user's original natural language query.
+
+    Returns:
+        list[Message]: Two messages: [system (direct prompt), user (query)].
+                       No <CONTEXT> tags -- the user message is just the query.
+    """
+    messages: list[Message] = [
+        {"role": "system", "content": DIRECT_SYSTEM_PROMPT},
+        {"role": "user", "content": query},
+    ]
+
+    logger.debug(
+        "direct prompt built",
+        extra={
+            "system_prompt_chars": len(DIRECT_SYSTEM_PROMPT),
+            "query_chars": len(query),
+            "total_prompt_chars": len(DIRECT_SYSTEM_PROMPT) + len(query),
+        },
+    )
+
+    return messages
+
+
 def estimate_prompt_tokens(messages: list[Message]) -> int:
     """
     Estimate total prompt tokens from the message list.
 
-    Uses the character approximation: tokens ≈ chars / 4.
-    This is a rough estimate. For production-accurate counting,
-    replace with tiktoken when it is added as a dependency.
+    Delegates to app.rag.token_utils.estimate_messages_tokens().
+    To switch to exact tokenisation, update token_utils only.
 
     Args:
         messages: The message list from build_messages().
@@ -113,5 +160,4 @@ def estimate_prompt_tokens(messages: list[Message]) -> int:
     Returns:
         int: Estimated token count for the full prompt.
     """
-    total_chars = sum(len(m.get("content", "")) for m in messages)
-    return total_chars // 4
+    return estimate_messages_tokens(messages)
