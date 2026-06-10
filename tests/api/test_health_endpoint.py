@@ -2,14 +2,15 @@
 Tests for GET /health.
 
 The health endpoint is the only route fully implemented in Module 1.
-All other route tests are added when their modules are built.
+Route-specific tests for POST /user, POST /upload-doc, POST /query,
+and GET /logs live in their own test files (Module 9).
 
 Test coverage:
     - Happy path: 200 with correct response schema
     - No authentication required
     - Correct field types in response
     - Non-existent paths return 404 (not 500)
-    - All stub routes return 501 with NOT_IMPLEMENTED error code
+    - All routes are registered and do not return 404 or 501
 """
 
 from fastapi.testclient import TestClient
@@ -52,42 +53,34 @@ class TestHealthEndpoint:
         assert response.status_code != 401
         assert response.status_code != 403
 
-    def test_nonexistent_path_returns_404(self, client: TestClient) -> None:
+    def test_nonexistent_path_returns_404(self, client: TestClient, auth_headers: dict) -> None:
         """Requests to unknown paths return 404, not 500."""
-        response = client.get("/this-path-does-not-exist")
+        response = client.get("/this-path-does-not-exist", headers=auth_headers)
         assert response.status_code == 404
 
-    def test_stub_routes_return_501(self, client: TestClient) -> None:
+    def test_all_routes_are_registered(self, client: TestClient) -> None:
         """
-        All planned routes are registered and return 501 (stub).
+        All routes are registered and respond (not 404).
 
-        Verifies that stub routes are present and return the expected
-        scaffold response rather than 404 (unregistered route).
+        After Module 9, routes return real responses (200/201/401/422)
+        rather than 501 stubs. This test verifies registration only.
+        Authentication details are tested in route-specific test files.
         """
-        stub_routes = [
+        routes = [
             ("POST", "/user"),
             ("POST", "/upload-doc"),
             ("POST", "/query"),
             ("GET", "/logs"),
         ]
-        for method, path in stub_routes:
+        for method, path in routes:
             if method == "POST":
                 response = client.post(path)
             else:
                 response = client.get(path)
 
-            assert response.status_code == 501, (
-                f"{method} {path} returned {response.status_code}, expected 501. "
-                "Stub routes must be registered and return 501 Not Implemented."
+            assert response.status_code != 404, (
+                f"{method} {path} returned 404 -- route not registered."
             )
-
-    def test_stub_routes_return_not_implemented_error_code(
-        self, client: TestClient
-    ) -> None:
-        """Stub route responses contain structured NOT_IMPLEMENTED error code."""
-        response = client.post("/user")
-        body = response.json()
-
-        assert "error_code" in body, "Stub response must contain 'error_code' field"
-        assert body["error_code"] == "NOT_IMPLEMENTED"
-        assert "message" in body, "Stub response must contain 'message' field"
+            assert response.status_code != 501, (
+                f"{method} {path} returned 501 -- route is still a stub."
+            )

@@ -8,5 +8,5 @@ Schemas added per module:
     M5: upload_request.py   -- POST /upload-doc form fields
     M5: upload_response.py  -- POST /upload-doc 201 response
     M6: query_request.py    -- POST /query request body
-    M6: query_response.py   -- POST /query 200 response
+    M6: query_response.py   -- POST /query 200 response (cache_hit field added M9)
 """

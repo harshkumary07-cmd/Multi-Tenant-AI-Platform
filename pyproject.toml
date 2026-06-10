@@ -61,6 +61,8 @@ module = [
     "app.services.llm_service",
     "app.cache.redis_client",
     "app.cache.cache_service",
+    "app.middleware.tenant_context",
+    "app.middleware.error_handler",
 ]
 ignore_errors = true
 

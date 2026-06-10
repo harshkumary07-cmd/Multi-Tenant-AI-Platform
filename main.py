@@ -31,7 +31,9 @@ from app.api.routes import health, logs, query, upload, user
 from app.cache.redis_client import close_redis_client, initialise_redis
 from app.config.settings import get_settings, get_settings_summary, validate_startup_config
 from app.logging.logger import configure_logging, get_logger
+from app.middleware.error_handler import ErrorHandlerMiddleware
 from app.middleware.request_logger import RequestLoggerMiddleware
+from app.middleware.tenant_context import TenantContextMiddleware
 from app.services.embedding_service import initialise_embedding_model
 from app.vectorstore.client import close_chroma_client, initialise_chroma
 
@@ -185,10 +187,13 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # M9 -- ErrorHandlerMiddleware registered here
+    # M9 -- ErrorHandlerMiddleware: maps domain exceptions to HTTP status codes
+    application.add_middleware(ErrorHandlerMiddleware)
     # M3 -- RequestLoggerMiddleware: logs every request entry/exit
     application.add_middleware(RequestLoggerMiddleware)
-    # M9 -- TenantContextMiddleware registered here (last = executes first)
+    # M9 -- TenantContextMiddleware: validates X-User-Id, sets request.state.user_id
+    # Registered last so it executes first on every incoming request.
+    application.add_middleware(TenantContextMiddleware)
 
     # ------------------------------------------------------------------
     # Router registration

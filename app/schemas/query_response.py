@@ -69,4 +69,8 @@ class QueryResponse(BaseModel):
         default=None,
         description="Reason for null answer, when applicable.",
     )
+    cache_hit: bool = Field(
+        default=False,
+        description="True if this result was served from Redis cache.",
+    )
     timestamp: datetime = Field(description="UTC timestamp of query completion.")

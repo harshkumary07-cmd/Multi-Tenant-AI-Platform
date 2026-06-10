@@ -3,47 +3,79 @@ Document upload route.
 
 POST /upload-doc -- upload a PDF or CSV document for ingestion.
 
-STATUS: STUB -- returns 501 Not Implemented.
-Ingestion pipeline implemented in Module 5.
-Route fully wired in Module 9 (API Layer).
+Synchronous: the full pipeline (parse → chunk → embed → store → cache invalidate)
+completes before 201 is returned. A 201 means the document is immediately queryable.
 
-Planned behaviour (approved architecture):
-    Request:  multipart/form-data with file binary + X-User-Id header
-    Response: {"document_id": "...", "chunks_stored": N, "status": "complete"}
-    Codes:    201 Created | 400 Bad Request | 401 Unauthorized
-              413 Too Large | 500 Internal Error | 503 Unavailable | 504 Timeout
-
-Design decisions (locked):
-    - Synchronous -- full pipeline completes before 201 response is returned
-    - 201 Created (not 202 Accepted) -- upload is done when response arrives
-    - Maximum file size: MAX_UPLOAD_SIZE_MB (default 50MB), checked before read
-    - Accepted types: PDF and CSV only
-    - Cache invalidation runs before response is returned
-    - Partial ChromaDB writes cleaned up on any pipeline failure
+HTTP codes:
+    201 Created              -- document successfully ingested
+    400 Bad Request          -- invalid file type, corrupt file, or empty document
+    401 Unauthorized         -- missing/blank X-User-Id header
+    413 Request Entity Too Large -- file exceeds MAX_UPLOAD_SIZE_MB
+    422 Unprocessable Entity -- multipart form missing required fields
+    500 Internal Server Error -- embedding failure
+    503 Service Unavailable  -- ChromaDB unavailable
 """
 
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 
+from app.config.dependencies import get_current_user_id, get_document_service
+from app.logging.logger import get_logger
+from app.schemas.upload_response import UploadResponse
+from app.services.document_service import DocumentService
+
+logger = get_logger(__name__)
 router = APIRouter()
 
 
 @router.post(
     "",
+    response_model=UploadResponse,
+    status_code=201,
     summary="Upload a document for ingestion",
-    description="Accepts PDF or CSV. Synchronous: returns 201 when fully stored in ChromaDB.",
-    status_code=501,
+    description=(
+        "Accepts PDF or CSV. Synchronous: returns 201 only after all chunks "
+        "are confirmed stored in ChromaDB. Cache is invalidated automatically."
+    ),
 )
-async def upload_document() -> JSONResponse:
+async def upload_document(
+    request: Request,
+    file: UploadFile = File(..., description="PDF or CSV file to ingest."),  # noqa: B008
+    file_type: str = Form(..., description="Declared file type: 'pdf' or 'csv'."),
+    user_id: str = Depends(get_current_user_id),
+    service: DocumentService = Depends(get_document_service),  # noqa: B008
+) -> UploadResponse:
     """
-    Upload and ingest a document.
+    Upload and ingest a document into the vector store.
 
-    Not yet implemented. Returns 501 until Module 9.
+    Returns 201 Created with document metadata when ingestion completes.
     """
-    return JSONResponse(
-        status_code=501,
-        content={
-            "error_code": "NOT_IMPLEMENTED",
-            "message": "POST /upload-doc will be implemented in Module 9.",
+    file_bytes = await file.read()
+    filename = file.filename or "upload"
+
+    logger.info(
+        "upload request received",
+        extra={
+            "event": "UPLOAD_REQUEST",
+            "user_id": user_id,
+            "source_file": filename,
+            "declared_type": file_type,
+            "size_bytes": len(file_bytes),
         },
+    )
+
+    record = service.ingest(
+        user_id=user_id,
+        file_bytes=file_bytes,
+        filename=filename,
+        declared_type=file_type,
+    )
+
+    return UploadResponse(
+        document_id=record.doc_id,
+        user_id=record.user_id,
+        filename=record.filename,
+        file_type=record.file_type,
+        chunks_stored=record.chunks_stored,
+        status="complete",
+        upload_timestamp=record.uploaded_at,
     )
