@@ -1,0 +1,135 @@
+# =============================================================================
+# Multi-Tenant AI Platform -- Docker Compose
+# =============================================================================
+#
+# Starts three services: app (FastAPI), chromadb, redis.
+#
+# Quick start:
+#   cp .env.example .env
+#   # Edit .env -- set LLM_API_KEY to your real key
+#   docker compose up
+#
+# First query:
+#   curl -X POST http://localhost:8000/user \
+#        -H "Content-Type: application/json" \
+#        -d '{"user_id": "alice"}'
+#
+#   curl -X POST http://localhost:8000/query \
+#        -H "Content-Type: application/json" \
+#        -H "X-User-Id: alice" \
+#        -d '{"query": "What is machine learning?"}'
+#
+# Data persistence:
+#   Named volumes (chroma-data, redis-data) survive container restarts.
+#   docker compose down          -- stops; data preserved
+#   docker compose down -v       -- stops and DELETES all persisted data
+#
+# Port mapping:
+#   app:      8000:8000  (FastAPI)
+#   chromadb: 8001:8000  (ChromaDB HTTP API -- for local inspection)
+#   redis:    6379:6379  (Redis -- for local inspection with redis-cli)
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # FastAPI application
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-platform:latest
+    container_name: ai-platform-app
+    env_file: .env
+    environment:
+      # Override localhost defaults with Docker service names.
+      # These take precedence over values in .env.
+      - CHROMA_HOST=chromadb
+      - REDIS_HOST=redis
+      - APP_HOST=0.0.0.0
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      chromadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bash", "scripts/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - ai-platform-net
+
+  # ---------------------------------------------------------------------------
+  # ChromaDB -- vector database
+  # ---------------------------------------------------------------------------
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: ai-platform-chromadb
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai-platform-net
+
+  # ---------------------------------------------------------------------------
+  # Redis -- query result cache
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: ai-platform-redis
+    command: >
+      redis-server
+        --appendonly yes
+        --appendfsync everysec
+        --maxmemory 256mb
+        --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - ai-platform-net
+
+# ---------------------------------------------------------------------------
+# Named volumes -- data persists across container restarts
+# ---------------------------------------------------------------------------
+volumes:
+  chroma-data:
+    driver: local
+  redis-data:
+    driver: local
+  uploads:
+    driver: local
+
+# ---------------------------------------------------------------------------
+# Network -- isolates the stack from other Docker containers
+# ---------------------------------------------------------------------------
+networks:
+  ai-platform-net:
+    driver: bridge

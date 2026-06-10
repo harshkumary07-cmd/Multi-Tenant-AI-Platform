@@ -1,0 +1,51 @@
+# =============================================================================
+# .dockerignore
+# Keeps the Docker build context small and prevents credential leakage.
+# =============================================================================
+
+# Version control
+.git
+.gitignore
+
+# Credentials -- NEVER include in image
+.env
+*.pem
+*.key
+
+# Python artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+.eggs
+dist
+build
+.venv
+venv
+
+# Type / lint / test caches
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Test fixtures (binary files, not needed at runtime)
+tests/fixtures
+
+# Module ZIPs (large, not needed at runtime)
+*.zip
+
+# Uploads directory (user data; should not be baked into the image)
+uploads
+
+# Documentation (not needed at runtime)
+docs
+*.md
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo

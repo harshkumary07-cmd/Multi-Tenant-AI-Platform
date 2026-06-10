@@ -31,178 +31,348 @@ six enforced layers of tenant isolation.
 
 ## Features
 
-- **Multi-tenant architecture** -- strict per-user isolation at six layers
-- **PDF ingestion** -- pdfplumber extraction, cleaning, 512-token chunking
-- **CSV ingestion** -- pandas parsing with column:value row serialisation
-- **Semantic search** -- `all-MiniLM-L6-v2` (384-dimensional vectors, CPU-capable)
-- **ChromaDB vector storage** -- single collection with metadata-filtered isolation
-- **Router Agent** -- rule-based DIRECT vs RETRIEVE routing (deterministic, free)
-- **Redis query cache** -- sub-100ms cache hits, normalised key strategy
-- **Multi-LLM support** -- OpenAI, Anthropic, local (Ollama) via abstraction layer
-- **Structured JSON logging** -- `request_id` propagation via Python `contextvars`
-- **Per-request cost tracking** -- token usage and USD estimate per query
-- **Docker Compose deployment** -- three-container stack on isolated network
-- **CI/CD pipeline** -- lint -> unit -> integration -> isolation -> docker build
+- **Multi-tenant isolation** — each user's documents and cache entries are
+  completely separated; cross-tenant data access is architecturally impossible
+- **PDF and CSV ingestion** — automatic text extraction, chunking, and embedding
+- **Semantic retrieval** — cosine similarity search over embedded document chunks
+- **Smart routing** — RouterAgent decides DIRECT (general knowledge) vs RETRIEVE
+  (document search) before any expensive work begins
+- **Multi-LLM support** — OpenAI, Anthropic, or a local provider via a single env var
+- **Redis caching** — query results cached with per-user invalidation on upload
+- **Structured logging** — every request logs JSON with request_id, user_id, latency
+- **Token cost tracking** — prompt and completion tokens on every LLM response
 
 ---
 
 ## Architecture
 
 ```
-Client
-  |
-  v
-FastAPI  (API + Middleware Layer)
-  |-- TenantContextMiddleware   validates X-User-Id, injects user_id
-  |-- RequestLoggerMiddleware   stamps request_id, measures latency
-  |-- ErrorHandlerMiddleware    maps exceptions to structured responses
-  |
-  v
-Services Layer
-  |-- DocumentService    orchestrates PDF/CSV ingestion pipeline
-  |-- QueryService       orchestrates cache -> router -> RAG -> response
-  |-- RouterAgent        DIRECT vs RETRIEVE (rule-based, deterministic)
-  |-- LLMService         provider abstraction (OpenAI / Anthropic / local)
-  |
-  v
-Data Layer
-  |-- ChromaDB   single 'documents' collection, tenant: where={"user_id": X}
-  |-- Redis      query cache, key: query:{user_id}:{sha256}
-  |-- LLM APIs   OpenAI / Anthropic / Ollama
+POST /query
+    → TenantContextMiddleware    (validates X-User-Id header)
+    → CachedQueryService         (Redis cache lookup)
+        → RoutedQueryService
+                → RouterAgent   (DIRECT vs RETRIEVE — deterministic, 5 rules)
+                ┌─ DIRECT ──→ LLMProvider.generate()
+                └─ RETRIEVE → QueryService
+                                → embed_single()
+                                → ChromaRepository.search_chunks(user_id=...)
+                                → assemble_context()
+                                → build_messages()
+                                → LLMProvider.generate()
+    ← QueryResult (answer, sources, route, token_usage, cache_hit, latency_ms)
 ```
 
-See `docs/architecture/` for detailed flow diagrams (added per module).
+**Tenant isolation layers:**
+
+1. `X-User-Id` header validated on every request by `TenantContextMiddleware`
+2. `user_id` injected into every service call via `Depends(get_current_user_id)`
+3. ChromaDB queries always include `where={"user_id": {"$eq": user_id}}`
+4. Cache keys prefixed `query:{user_id}:...` — no cross-tenant key collisions
+5. Cache invalidation on upload scoped to `query:{user_id}:*`
+6. All domain exception messages exclude other users' data
 
 ---
 
 ## Tech Stack
 
-| Component | Technology | Version | Purpose |
-|---|---|---|---|
-| Backend | FastAPI | 0.111.0 | Async HTTP API framework |
-| Vector DB | ChromaDB | latest | Embedding storage and similarity search |
-| Embeddings | sentence-transformers | 3.0.1 | `all-MiniLM-L6-v2` (384 dims) |
-| Cache | Redis | 7 | Query result caching with TTL |
-| LLM | OpenAI / Anthropic | latest | Answer generation |
-| PDF parsing | pdfplumber | 0.11.0 | Layout-aware text extraction |
-| CSV parsing | pandas | 2.2.2 | Tabular data processing |
-| Validation | pydantic | 2.7.1 | Request/response schemas + settings |
-| Linting | ruff | 0.4.4 | Style and import enforcement |
-| Type checking | mypy | 1.10.0 | Static type verification |
-| Testing | pytest | 8.2.0 | Unit, integration, and API tests |
-| Containers | Docker Compose | v2 | Three-service orchestration |
+| Component | Technology | Version |
+|---|---|---|
+| API framework | FastAPI | 0.111 |
+| Vector database | ChromaDB | 0.5.0 |
+| Embeddings | sentence-transformers (all-MiniLM-L6-v2) | 3.0.0 |
+| LLM (default) | OpenAI gpt-4o | via API |
+| Cache | Redis | 7 |
+| Text splitting | LangChain text splitters | 0.2.0 |
+| PDF parsing | pdfplumber | 0.11.0 |
+| CSV parsing | pandas | 2.2.0 |
+| Validation | Pydantic v2 | 2.7.0 |
+| Server | Uvicorn | 0.29.0 |
 
 ---
 
 ## Quick Start
 
-### Prerequisites
+### Option A — Docker (recommended)
 
-- Python 3.11+
-- Docker Desktop
-- An OpenAI or Anthropic API key (optional for M1 -- required from M6 onwards)
-
-### 1. Clone
+**Prerequisites:** Docker Desktop or Docker Engine with Compose plugin.
 
 ```bash
+# 1. Clone
 git clone https://github.com/yourusername/ai-platform.git
 cd ai-platform
-```
 
-### 2. Create virtual environment
-
-```bash
-python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
-```
-
-### 3. Install dependencies
-
-```bash
-pip install -r requirements.txt -r requirements-dev.txt
-```
-
-### 4. Configure environment
-
-```bash
+# 2. Configure
 cp .env.example .env
-# Optionally set LLM_API_KEY in .env for Module 6+ features
-```
+# Edit .env -- set LLM_API_KEY to your real key:
+#   LLM_API_KEY=sk-...        (OpenAI)
+#   LLM_API_KEY=sk-ant-...    (Anthropic, also set LLM_PROVIDER=anthropic)
 
-### 5. Start the application
-
-**Option A -- Full Docker stack:**
-```bash
+# 3. Start all services
 docker compose up
-```
 
-**Option B -- Local development (infrastructure in Docker):**
-```bash
-docker compose up chromadb redis -d
-uvicorn main:app --reload
-```
-
-### 6. Verify
-
-```bash
+# 4. Verify
 curl http://localhost:8000/health
-# {"status": "ok", "env": "development", "version": "0.1.0"}
 ```
 
-### 7. Browse the API
+### Option B — Local Python (development)
 
-Open http://localhost:8000/docs for interactive documentation.
+**Prerequisites:** Python 3.11+, ChromaDB running locally, Redis running locally.
+
+```bash
+# 1. Clone and enter
+git clone https://github.com/yourusername/ai-platform.git
+cd ai-platform
+
+# 2. Virtual environment
+python -m venv .venv
+source .venv/bin/activate       # Windows: .venv\Scripts\activate
+
+# 3. Install
+pip install -r requirements.txt
+pip install -r requirements-dev.txt   # for testing
+
+# 4. Configure
+cp .env.example .env
+# Edit .env -- set LLM_API_KEY at minimum
+
+# 5. Start ChromaDB (separate terminal)
+pip install chromadb
+chroma run --host localhost --port 8001
+
+# 6. Start Redis (separate terminal)
+redis-server
+
+# 7. Start the API
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# 8. Verify
+curl http://localhost:8000/health
+```
+
+---
+
+## First Query (end-to-end)
+
+```bash
+# 1. Register a user
+curl -s -X POST http://localhost:8000/user \
+     -H "Content-Type: application/json" \
+     -d '{"user_id": "alice"}' | python3 -m json.tool
+
+# 2. Upload a document
+curl -s -X POST http://localhost:8000/upload-doc \
+     -H "X-User-Id: alice" \
+     -F "file=@/path/to/your-document.pdf" \
+     -F "file_type=pdf" | python3 -m json.tool
+
+# 3. Query it
+curl -s -X POST http://localhost:8000/query \
+     -H "Content-Type: application/json" \
+     -H "X-User-Id: alice" \
+     -d '{"query": "What are the main findings in this document?"}' \
+     | python3 -m json.tool
+```
 
 ---
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and configure as needed.
+See [`.env.example`](.env.example) for the full annotated list. Key variables:
 
 | Variable | Default | Required | Description |
 |---|---|---|---|
-| `APP_ENV` | `development` | No | `development` / `staging` / `production` |
-| `LLM_API_KEY` | `changeme` | M6+ | OpenAI or Anthropic API key |
-| `CHROMA_HOST` | `localhost` | No | `chromadb` in Docker Compose |
-| `REDIS_HOST` | `localhost` | No | `redis` in Docker Compose |
-| `CHUNK_SIZE_TOKENS` | `512` | No | Tokens per document chunk |
-| `RETRIEVAL_CONFIDENCE_THRESHOLD` | `0.35` | No | Minimum cosine similarity score |
-| `REDIS_CACHE_TTL_SECONDS` | `1800` | No | Cache entry TTL (seconds) |
-| `MAX_UPLOAD_SIZE_MB` | `50` | No | Maximum file upload size |
-
-See `.env.example` for the complete list with descriptions.
+| `LLM_API_KEY` | `changeme` | **Yes** | OpenAI or Anthropic API key |
+| `LLM_PROVIDER` | `openai` | No | `openai` \| `anthropic` \| `local` |
+| `LLM_MODEL_NAME` | `gpt-4o` | No | Model identifier for the chosen provider |
+| `APP_ENV` | `development` | No | `development` \| `production` |
+| `CHROMA_HOST` | `localhost` | No | ChromaDB hostname (Docker: `chromadb`) |
+| `REDIS_HOST` | `localhost` | No | Redis hostname (Docker: `redis`) |
+| `RETRIEVAL_CONFIDENCE_THRESHOLD` | `0.35` | No | Minimum cosine similarity to include a chunk |
 
 ---
 
 ## API Reference
 
-| Method | Endpoint | Description | Module |
-|---|---|---|---|
-| `GET` | `/health` | Application health check | M1 |
-| `POST` | `/user` | Register a new user (tenant) | M9 |
-| `POST` | `/upload-doc` | Upload PDF or CSV document | M9 |
-| `POST` | `/query` | Submit a natural language query | M9 |
-| `GET` | `/logs` | Retrieve operational metrics | M9 |
+All authenticated endpoints require the `X-User-Id: <your_user_id>` header.
+
+### `GET /health`
+
+Health check. No authentication required.
+
+**Response 200:**
+```json
+{"status": "ok", "env": "development", "version": "0.1.0"}
+```
+
+---
+
+### `POST /user`
+
+Register a user identity. No authentication required.
+
+**Request body:**
+```json
+{"user_id": "alice"}
+```
+
+`user_id`: 1–64 characters, alphanumeric + hyphens + underscores.
+
+**Response 201:**
+```json
+{
+  "user_id": "alice",
+  "created_at": "2024-06-01T12:00:00Z",
+  "message": "User 'alice' registered successfully."
+}
+```
+
+---
+
+### `POST /upload-doc`
+
+Upload and ingest a PDF or CSV document. Synchronous — returns 201 after all
+chunks are confirmed stored.
+
+**Request:** `multipart/form-data`
+- `file`: the document file
+- `file_type`: `"pdf"` or `"csv"`
+
+**Response 201:**
+```json
+{
+  "document_id": "doc_a1b2c3d4",
+  "user_id": "alice",
+  "filename": "report.pdf",
+  "file_type": "pdf",
+  "chunks_stored": 42,
+  "status": "complete",
+  "upload_timestamp": "2024-06-01T12:00:00Z"
+}
+```
+
+**Error codes:** `400` bad file type / corrupt / empty, `413` too large, `503` ChromaDB unavailable.
+
+---
+
+### `POST /query`
+
+Submit a natural language query for AI-powered answering.
+
+**Request body:**
+```json
+{
+  "query": "What were the Q3 revenue figures?",
+  "top_k": 5
+}
+```
+
+`top_k` is optional (default: `RETRIEVAL_TOP_K` setting, range 1–20).
+
+**Response 200:**
+```json
+{
+  "query": "What were the Q3 revenue figures?",
+  "answer": "Q3 revenue was $2.4B, up 34% YoY. [Source: report.pdf, chunk 3]",
+  "sources": [
+    {"doc_id": "doc_a1b2c3d4", "source": "report.pdf", "chunk_count": 2, "top_score": 0.91}
+  ],
+  "route": "RETRIEVE",
+  "chunks_retrieved": 5,
+  "chunks_used": 2,
+  "token_usage": {"prompt_tokens": 820, "completion_tokens": 64, "total_tokens": 884},
+  "latency_ms": 1240,
+  "no_result_reason": null,
+  "cache_hit": false,
+  "timestamp": "2024-06-01T12:00:00Z"
+}
+```
+
+No-result response (`answer` is `null` when no chunks meet the confidence threshold):
+```json
+{"answer": null, "no_result_reason": "No chunks met the confidence threshold of 0.35.", ...}
+```
+
+**Error codes:** `401` missing header, `422` validation error, `502` LLM provider error, `503` ChromaDB unavailable, `504` LLM timeout.
+
+---
+
+### `GET /logs`
+
+Retrieve operational metrics for the authenticated user.
+
+**Response 200:**
+```json
+{
+  "user_id": "alice",
+  "note": "Phase 1: metrics persistence not yet implemented.",
+  "request_metrics": {"total_requests": 0, "avg_latency_ms": 0},
+  "cache_statistics": {"hit_rate_pct": 0.0, "cache_hits": 0, "cache_misses": 0},
+  "route_decisions": {"direct_count": 0, "retrieve_count": 0},
+  "documents": {"total_uploaded": 0, "total_chunks_stored": 0}
+}
+```
 
 ---
 
 ## Testing
 
 ```bash
-# Run all tests
-pytest
+# All tests
+python -m pytest -v
 
-# Run with coverage report
-pytest --cov=app --cov-report=html
+# Unit tests only (no external services)
+python -m pytest tests/unit/ -v
 
-# Run by category
-pytest tests/unit/           # fast, no infrastructure
-pytest tests/integration/    # requires ChromaDB + Redis
-pytest tests/api/            # full HTTP stack
+# Integration tests (requires ChromaDB + Redis running)
+python -m pytest tests/integration/ tests/api/ -v
 
-# Run only tenant isolation tests (critical security tests)
-pytest tests/integration/ -k "isolation" -v
+# With coverage report
+python -m pytest --cov=app --cov-report=term-missing
 ```
+
+**Test counts (M9 baseline):**
+- Unit: 524 tests
+- Integration: 13 tests
+- API: 102 tests
+- **Total: 639 tests**
+
+---
+
+## Docker
+
+```bash
+# Start all services (builds image on first run)
+docker compose up
+
+# Start in background
+docker compose up -d
+
+# Follow application logs
+docker compose logs -f app
+
+# Rebuild after code changes
+docker compose build app && docker compose up app
+
+# Infrastructure only (for local Python development)
+docker compose up chromadb redis -d
+
+# Stop services (data preserved in named volumes)
+docker compose down
+
+# Stop and delete all persisted data
+docker compose down -v
+
+# Backup ChromaDB and Redis
+./scripts/backup.sh ./backups
+```
+
+**Port mapping:**
+
+| Service | Host port | Container port |
+|---|---|---|
+| FastAPI app | 8000 | 8000 |
+| ChromaDB | 8001 | 8000 |
+| Redis | 6379 | 6379 |
 
 ---
 
@@ -210,36 +380,41 @@ pytest tests/integration/ -k "isolation" -v
 
 ```
 ai-platform/
-├── main.py                 Application entrypoint (uvicorn main:app)
 ├── app/
-│   ├── api/routes/         FastAPI route handlers
-│   ├── services/           Business logic orchestration
-│   ├── repositories/       All I/O with external systems
-│   ├── rag/                RAG pipeline (parsing, chunking, retrieval)
-│   ├── agents/             Router Agent (DIRECT vs RETRIEVE)
-│   ├── middleware/         Cross-cutting HTTP concerns
-│   ├── schemas/            Pydantic HTTP contracts
-│   ├── models/             Internal domain objects
-│   ├── config/             Settings and dependency injection
-│   └── logging/            Structured JSON logger factory
+│   ├── agents/              # RouterAgent (M7)
+│   ├── api/routes/          # FastAPI route handlers (M9)
+│   ├── cache/               # Redis client + CacheService (M8)
+│   ├── config/              # Settings, dependency injection (M1/M9)
+│   ├── logging/             # Structured JSON logging (M3)
+│   ├── middleware/          # TenantContext + ErrorHandler (M9), RequestLogger (M3)
+│   ├── models/              # Domain dataclasses (no HTTP concerns)
+│   ├── rag/                 # Context assembler, prompt builder, token utils (M6)
+│   │   └── parsers/         # PDF + CSV parsers (M5)
+│   ├── repositories/        # ChromaRepository (M4)
+│   ├── schemas/             # Pydantic HTTP schemas (M5/M6/M9)
+│   ├── services/            # Business logic orchestration (M5–M9)
+│   └── vectorstore/         # ChromaDB client singleton (M4)
+├── docs/
+│   ├── adr/                 # Architecture Decision Records
+│   ├── api/                 # API reference
+│   └── architecture/        # Architecture overview
+├── scripts/
+│   ├── backup.sh            # ChromaDB + Redis backup
+│   ├── healthcheck.sh       # Docker HEALTHCHECK
+│   └── reingest.sh          # Re-embed after model change
 ├── tests/
-│   ├── unit/               Fast tests, no infrastructure
-│   ├── integration/        Real ChromaDB + Redis tests
-│   ├── api/                HTTP endpoint tests
-│   └── fixtures/           Test PDFs and CSVs
-└── docs/adr/               Architecture Decision Records
-```
-
----
-
-## Docker
-
-```bash
-docker compose up                        # start all services
-docker compose up chromadb redis -d      # infrastructure only
-docker compose logs -f app               # follow app logs
-docker compose down                      # stop (data preserved)
-docker compose down -v                   # stop and DELETE all data
+│   ├── api/                 # Route handler tests
+│   ├── fixtures/            # Binary test fixtures (PDF, CSV)
+│   ├── integration/         # ChromaDB integration tests
+│   └── unit/                # All unit tests (no infrastructure)
+├── .env.example             # All environment variables documented
+├── .github/workflows/ci.yml # CI pipeline
+├── docker-compose.yml       # Full stack: app + chromadb + redis
+├── Dockerfile               # Two-stage production image
+├── main.py                  # FastAPI app factory + lifespan
+├── pyproject.toml           # ruff, mypy, pytest configuration
+├── requirements.txt         # Pinned production dependencies
+└── requirements-dev.txt     # Pinned development/test dependencies
 ```
 
 ---
@@ -248,36 +423,36 @@ docker compose down -v                   # stop and DELETE all data
 
 | Module | Description | Status |
 |---|---|---|
-| M1 | Project Scaffold | Complete |
-| M2 | Configuration Layer | Pending |
-| M3 | Logging Layer | Pending |
-| M4 | Vector Database Layer | Pending |
-| M5 | Document Ingestion | Pending |
-| M6 | RAG Query Engine | Pending |
-| M7 | Router Agent | Pending |
-| M8 | Redis Cache | Pending |
-| M9 | API Layer | Pending |
-| M10 | Deployment and Hardening | Pending |
+| M1 | Project Scaffold | ✅ Complete |
+| M2 | Configuration Validation + Exception Hierarchy | ✅ Complete |
+| M3 | Structured JSON Logging Framework | ✅ Complete |
+| M4 | ChromaDB Vector Store + Multi-Tenant Isolation | ✅ Complete |
+| M5 | Document Ingestion Pipeline (PDF/CSV) | ✅ Complete |
+| M6 | RAG Query Engine | ✅ Complete |
+| M7 | Router Agent (DIRECT vs RETRIEVE) | ✅ Complete |
+| M8 | Redis Cache Layer | ✅ Complete |
+| M9 | API Layer (routes, middleware, DI) | ✅ Complete |
+| M10 | Deployment Hardening (Docker, CI) | ✅ Complete |
 
 ---
 
 ## Future Roadmap
 
-- Phase 2 JWT authentication (replace `X-User-Id` header)
-- Async upload processing (Celery + Redis queue)
-- Hybrid search (BM25 + vector similarity)
-- Cross-encoder re-ranking for retrieved chunks
-- Streaming LLM responses via server-sent events
-- Per-user rate limiting
+- **Phase 2 authentication:** JWT-based auth replacing `X-User-Id` header
+- **Metrics persistence:** Populate `GET /logs` from a real metrics store
+- **Document management:** `DELETE /upload-doc/{document_id}` endpoint
+- **Async ingestion:** Background task queue for large document uploads
+- **Ollama integration:** Local LLM provider using Ollama HTTP API
+- **Tiktoken integration:** Exact token counting replacing character approximation
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
 ## License
 
-MIT License -- see [LICENSE](LICENSE) for details.
+MIT
