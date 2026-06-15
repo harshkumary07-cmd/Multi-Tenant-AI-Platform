@@ -1,33 +1,22 @@
 """
 LLM provider abstraction layer.
 
-Defines LLMProvider as an abstract base class and provides three implementations:
+Defines LLMProvider as an abstract base class and provides four implementations:
 
     LocalProvider     -- development/CI mode; no external API call required
     OpenAIProvider    -- production OpenAI (gpt-4o, gpt-4o-mini, etc.)
     AnthropicProvider -- production Anthropic (claude-3-haiku, claude-3-5-sonnet, etc.)
+    OllamaProvider    -- local Ollama instance (llama3, mistral, etc.)
 
 Provider selection is controlled by settings.LLM_PROVIDER:
     "local"     -> LocalProvider
     "openai"    -> OpenAIProvider
     "anthropic" -> AnthropicProvider
+    "ollama"    -> OllamaProvider
 
 LLMResponse carries a standardised output regardless of which provider
 generated it. Business logic (QueryService) never imports provider-specific
 classes -- it only imports LLMProvider and LLMResponse.
-
-Dependency isolation:
-    OpenAIProvider imports openai inside its generate() method.
-    AnthropicProvider imports anthropic inside its generate() method.
-    This means the platform starts and runs without those packages installed,
-    as long as settings.LLM_PROVIDER is "local" or an untested provider is
-    not instantiated. Missing packages produce ImportError at generate() time,
-    not at application startup.
-
-Token counting:
-    All three providers report token usage. LocalProvider estimates based
-    on character counts. OpenAI and Anthropic report exact counts from their
-    API responses.
 """
 
 from __future__ import annotations
@@ -35,6 +24,8 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+
+import httpx
 
 from app.logging.logger import get_logger
 from app.models.exceptions import LLMProviderError, LLMTimeoutError
@@ -58,7 +49,7 @@ class LLMResponse:
         content:     The text content of the model's response.
         token_usage: Token consumption breakdown.
         model:       The exact model identifier used (from the API response).
-        provider:    The provider name ("local", "openai", "anthropic").
+        provider:    The provider name ("local", "openai", "anthropic", "ollama").
         latency_ms:  Time from API call to response, in milliseconds.
     """
 
@@ -138,10 +129,6 @@ class LocalProvider(LLMProvider):
         - Development without API credentials
         - CI/CD pipeline test execution
         - Integration tests that verify the pipeline end-to-end
-
-    Token reporting:
-        Estimates based on character counts using the 1 token ≈ 4 chars rule.
-        Reports are approximate but structurally correct.
     """
 
     @property
@@ -149,12 +136,6 @@ class LocalProvider(LLMProvider):
         return "local"
 
     def generate(self, messages: list[Message]) -> LLMResponse:
-        """
-        Generate a response by extracting key content from the context.
-
-        Parses the user message to find the context block and query,
-        then produces a structured response indicating context was found.
-        """
         start = time.monotonic()
 
         user_message = next(
@@ -174,9 +155,7 @@ class LocalProvider(LLMProvider):
             after_context = user_message.split("</CONTEXT>", 1)[-1].strip()
             query = after_context.strip()
 
-        # Build a minimal, honest response
         if context_section:
-            # Count sources mentioned
             source_lines = [
                 line for line in context_section.splitlines()
                 if line.startswith("[Source:")
@@ -235,11 +214,6 @@ class OpenAIProvider(LLMProvider):
     this provider is not actually called).
 
     Compatible models: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo.
-
-    Raises:
-        LLMTimeoutError:  If the API does not respond within timeout_seconds.
-        LLMProviderError: If the OpenAI API returns any error response,
-                          or if the openai package is not installed.
     """
 
     @property
@@ -271,9 +245,7 @@ class OpenAIProvider(LLMProvider):
                 f"OpenAI API did not respond within {self.timeout_seconds}s: {exc}"
             ) from exc
         except openai.APIError as exc:
-            raise LLMProviderError(
-                f"OpenAI API error: {exc}"
-            ) from exc
+            raise LLMProviderError(f"OpenAI API error: {exc}") from exc
         except Exception as exc:
             raise LLMProviderError(
                 f"Unexpected error calling OpenAI API: {exc}"
@@ -327,11 +299,6 @@ class AnthropicProvider(LLMProvider):
     Note: Anthropic's messages API uses a slightly different structure --
     the system prompt is a separate parameter, not a message. This provider
     handles that translation internally.
-
-    Raises:
-        LLMTimeoutError:  If the API does not respond within timeout_seconds.
-        LLMProviderError: If the Anthropic API returns any error response,
-                          or if the anthropic package is not installed.
     """
 
     @property
@@ -374,9 +341,7 @@ class AnthropicProvider(LLMProvider):
                 f"Anthropic API did not respond within {self.timeout_seconds}s: {exc}"
             ) from exc
         except anthropic.APIError as exc:
-            raise LLMProviderError(
-                f"Anthropic API error: {exc}"
-            ) from exc
+            raise LLMProviderError(f"Anthropic API error: {exc}") from exc
         except Exception as exc:
             raise LLMProviderError(
                 f"Unexpected error calling Anthropic API: {exc}"
@@ -417,6 +382,115 @@ class AnthropicProvider(LLMProvider):
 
 
 # ---------------------------------------------------------------------------
+# Ollama provider
+# ---------------------------------------------------------------------------
+
+
+class OllamaProvider(LLMProvider):
+    """
+    Ollama local LLM provider.
+
+    Calls a locally-running Ollama instance via its REST API using the
+    /api/chat endpoint (chat-style messages format).
+
+    The Ollama host URL is configurable via the OLLAMA_BASE_URL constructor
+    argument (mapped from settings.OLLAMA_BASE_URL).
+
+    Compatible models: any model pulled via `ollama pull <model>`,
+    e.g. mistral, llama3, codellama, etc.
+
+    Raises:
+        LLMTimeoutError:  If Ollama does not respond within timeout_seconds.
+        LLMProviderError: If Ollama returns an error or is unreachable.
+    """
+
+    def __init__(
+        self,
+        model_name: str,
+        api_key: str,
+        timeout_seconds: int,
+        base_url: str = "http://localhost:11434",
+    ) -> None:
+        super().__init__(model_name, api_key, timeout_seconds)
+        # Normalise: strip trailing slash
+        self._base_url = base_url.rstrip("/")
+
+    @property
+    def provider_name(self) -> str:
+        return "ollama"
+
+    def generate(self, messages: list[Message]) -> LLMResponse:
+        start = time.monotonic()
+
+        # Use /api/chat for proper chat-style message handling
+        url = f"{self._base_url}/api/chat"
+
+        try:
+            response = httpx.post(
+                url,
+                json={
+                    "model": self.model_name,
+                    "messages": messages,
+                    "stream": False,
+                },
+                timeout=float(self.timeout_seconds),
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        except httpx.TimeoutException as exc:
+            raise LLMTimeoutError(
+                f"Ollama did not respond within {self.timeout_seconds}s. "
+                f"Check that Ollama is running at {self._base_url}."
+            ) from exc
+        except httpx.HTTPStatusError as exc:
+            raise LLMProviderError(
+                f"Ollama returned HTTP {exc.response.status_code}: "
+                f"{exc.response.text[:200]}"
+            ) from exc
+        except Exception as exc:
+            raise LLMProviderError(
+                f"Ollama request failed: {exc}. "
+                f"Ensure Ollama is reachable at {self._base_url} and "
+                f"model '{self.model_name}' is pulled."
+            ) from exc
+
+        latency_ms = int((time.monotonic() - start) * 1000)
+
+        # /api/chat response: {"message": {"role": "assistant", "content": "..."}}
+        message_obj = data.get("message", {})
+        content = message_obj.get("content", "")
+
+        if not content:
+            # Fallback: some Ollama versions use "response" key
+            content = data.get("response", "")
+
+        # Ollama reports token counts in eval_count / prompt_eval_count
+        prompt_tokens = data.get("prompt_eval_count", estimate_prompt_tokens(messages))
+        completion_tokens = data.get("eval_count", len(content) // 4)
+
+        logger.info(
+            "llm response generated",
+            extra={
+                "event": "LLM_RESPONSE",
+                "provider": self.provider_name,
+                "model": self.model_name,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "latency_ms": latency_ms,
+            },
+        )
+
+        return LLMResponse(
+            content=content,
+            token_usage=TokenUsage.from_counts(prompt_tokens, completion_tokens),
+            model=self.model_name,
+            provider=self.provider_name,
+            latency_ms=latency_ms,
+        )
+
+
+# ---------------------------------------------------------------------------
 # Provider factory
 # ---------------------------------------------------------------------------
 
@@ -426,18 +500,17 @@ def create_llm_provider(
     model_name: str,
     api_key: str,
     timeout_seconds: int,
+    ollama_base_url: str = "http://localhost:11434",
 ) -> LLMProvider:
     """
     Factory function for LLM providers.
 
-    Instantiates the correct LLMProvider subclass based on provider_name.
-    Called from QueryService.__init__() using values from Settings.
-
     Args:
-        provider_name:   "local", "openai", or "anthropic".
-        model_name:      Model identifier string.
-        api_key:         API key (from settings.LLM_API_KEY.get_secret_value()).
-        timeout_seconds: Request timeout (from settings.LLM_TIMEOUT_SECONDS).
+        provider_name:    "local", "openai", "anthropic", or "ollama".
+        model_name:       Model identifier string.
+        api_key:          API key (from settings.LLM_API_KEY.get_secret_value()).
+        timeout_seconds:  Request timeout (from settings.LLM_TIMEOUT_SECONDS).
+        ollama_base_url:  Base URL for Ollama (from settings.OLLAMA_BASE_URL).
 
     Returns:
         LLMProvider: Concrete provider instance.
@@ -445,6 +518,23 @@ def create_llm_provider(
     Raises:
         LLMProviderError: If provider_name is not recognised.
     """
+    if provider_name == "ollama":
+        logger.info(
+            "llm provider created",
+            extra={
+                "event": "LLM_PROVIDER_CREATED",
+                "provider": provider_name,
+                "model": model_name,
+                "ollama_base_url": ollama_base_url,
+            },
+        )
+        return OllamaProvider(
+            model_name=model_name,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+            base_url=ollama_base_url,
+        )
+
     providers: dict[str, type[LLMProvider]] = {
         "local": LocalProvider,
         "openai": OpenAIProvider,
@@ -454,7 +544,7 @@ def create_llm_provider(
     if provider_name not in providers:
         raise LLMProviderError(
             f"Unknown LLM provider '{provider_name}'. "
-            f"Supported providers: {sorted(providers.keys())}. "
+            f"Supported providers: {sorted(list(providers.keys()) + ['ollama'])}. "
             "Check the LLM_PROVIDER setting."
         )
 

@@ -144,6 +144,9 @@ _RETRIEVE_KEYWORDS: list[str] = [
 
 # Rule 4: strong DIRECT signals
 # These are prefixes/phrases strongly associated with general knowledge queries.
+# NOTE: "tell me about" and "describe" are intentionally excluded here because
+# they are also used for resume/document summary queries (handled by QueryService
+# summary detection). When documents are present, Rule 5 defaults to RETRIEVE.
 _DIRECT_KEYWORDS: list[str] = [
     "what is ",
     "what is\n",
@@ -177,9 +180,6 @@ _DIRECT_KEYWORDS: list[str] = [
     "definition of ",
     "explain ",
     "explain\n",
-    "tell me about ",
-    "describe ",
-    "describe\n",
     "give me a definition",
     "what does it mean",
     "what does that mean",

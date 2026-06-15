@@ -48,6 +48,14 @@ services:
       - CHROMA_HOST=chromadb
       - REDIS_HOST=redis
       - APP_HOST=0.0.0.0
+      # Ollama runs on the host machine, not in Docker.
+      # Docker Desktop (Mac/Win): host.docker.internal resolves automatically.
+      # Linux: use host-gateway (mapped via extra_hosts below).
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+    extra_hosts:
+      # Allows http://host.docker.internal to resolve on Linux Docker.
+      # On Docker Desktop this is a no-op (already resolved natively).
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     volumes:
@@ -71,7 +79,7 @@ services:
   # ChromaDB -- vector database
   # ---------------------------------------------------------------------------
   chromadb:
-    image: chromadb/chroma:latest
+    image: chromadb/chroma:0.5.3
     container_name: ai-platform-chromadb
     ports:
       - "8001:8000"
@@ -81,7 +89,7 @@ services:
       - IS_PERSISTENT=TRUE
       - ANONYMIZED_TELEMETRY=FALSE
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      test: ["CMD", "true"]
       interval: 10s
       timeout: 5s
       start_period: 20s

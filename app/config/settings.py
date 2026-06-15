@@ -182,7 +182,7 @@ class Settings(BaseSettings):
         ),
     )
     RETRIEVAL_CONFIDENCE_THRESHOLD: float = Field(
-        default=0.35,
+        default=0.25,
         description=(
             "Minimum cosine similarity score (0.0-1.0) for a chunk to be "
             "included in the LLM context. Below threshold = no-result response. "
@@ -193,8 +193,8 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # LLM (provider initialised in Module 6)
     # ------------------------------------------------------------------
-    LLM_PROVIDER: Literal["openai", "anthropic", "local"] = Field(
-        default="openai",
+    LLM_PROVIDER: Literal["openai", "anthropic", "local", "ollama"] = Field(
+        default="local",
         description="Primary LLM provider. Failover chain: primary -> secondary -> local.",
     )
     LLM_MODEL_NAME: str = Field(
@@ -214,6 +214,16 @@ class Settings(BaseSettings):
     LLM_TIMEOUT_SECONDS: int = Field(
         default=30,
         description="Max seconds to wait for LLM API response before LLMTimeoutError.",
+    )
+    OLLAMA_BASE_URL: str = Field(
+        default="http://localhost:11434",
+        description=(
+            "Base URL for the Ollama server. "
+            "Local development: http://localhost:11434. "
+            "Docker on Linux host: http://host-gateway:11434 (requires extra_hosts). "
+            "Docker Desktop (Mac/Win): http://host.docker.internal:11434. "
+            "Only used when LLM_PROVIDER=ollama."
+        ),
     )
 
     # ------------------------------------------------------------------
@@ -453,6 +463,7 @@ def get_settings_summary(settings: Settings) -> dict[str, str | int | float | bo
         "LLM_MODEL_NAME": settings.LLM_MODEL_NAME,
         "LLM_API_KEY": str(settings.LLM_API_KEY),  # always "**********"
         "LLM_TIMEOUT_SECONDS": settings.LLM_TIMEOUT_SECONDS,
+        "OLLAMA_BASE_URL": settings.OLLAMA_BASE_URL,
         "MAX_UPLOAD_SIZE_MB": settings.MAX_UPLOAD_SIZE_MB,
         "UPLOAD_TIMEOUT_SECONDS": settings.UPLOAD_TIMEOUT_SECONDS,
     }

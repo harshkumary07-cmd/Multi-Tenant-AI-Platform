@@ -39,9 +39,12 @@ USER_ID_HEADER = "X-User-Id"
 # Equality check -- no wildcards. Adding a new public path is a conscious decision.
 _UNAUTHENTICATED_PATHS: frozenset[str] = frozenset({
     "/health",
-    "/user",   # Bootstrap: cannot require auth for the route that creates identities.
+    "/user",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/favicon.ico",
 })
-
 
 def _is_valid_user_id(user_id: str) -> bool:
     """

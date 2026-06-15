@@ -95,7 +95,43 @@ class QueryService:
             LLMTimeoutError:      If the LLM provider times out.
             LLMProviderError:     If the LLM provider returns an error.
         """
-        effective_top_k = top_k if top_k is not None else self._settings.RETRIEVAL_TOP_K
+        effective_top_k = (
+            top_k
+            if top_k is not None
+            else self._settings.RETRIEVAL_TOP_K
+        )
+
+        query_lower = query_text.lower()
+
+        summary_keywords = [
+        "summary",
+        "summarize",
+        "summarise",
+        "overview",
+        "candidate profile",
+        "candidate summary",
+        "candidate overview",
+        "resume summary",
+        "complete profile",
+        "full profile",
+        "profile of the candidate",
+        "tell me about",
+        "describe the candidate",
+        "complete details",
+        "all details",
+        "complete resume",
+        "entire resume",
+        "all information",
+        "full information",
+        ]
+
+        is_summary_query = any(
+            keyword in query_lower
+            for keyword in summary_keywords
+        )
+
+        if is_summary_query:
+            effective_top_k = max(effective_top_k, 7)
         tracker = LatencyTracker()
 
         logger.info(

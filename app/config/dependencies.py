@@ -28,7 +28,7 @@ Pattern -- test override:
     app.dependency_overrides.clear()
 """
 
-from fastapi import Request
+from fastapi import Request, Header
 
 from app.agents.router_agent import RouterAgent
 from app.cache.cache_service import CacheService
@@ -62,18 +62,17 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-def get_current_user_id(request: Request) -> str:
+def get_current_user_id(
+    request: Request,
+    x_user_id: str = Header(..., alias="X-User-Id"),
+) -> str:
     """
     Extract the validated user_id from request.state.
 
     TenantContextMiddleware sets request.state.user_id before any route
     handler runs. This dependency surfaces it with a clean signature.
-
-    Returns:
-        str: The tenant identifier for this request.
     """
-    return request.state.user_id  # type: ignore[no-any-return]
-
+    return request.state.user_id
 
 # ---------------------------------------------------------------------------
 # Infrastructure providers
@@ -112,6 +111,7 @@ def get_llm_provider() -> LLMProvider:
         model_name=settings.LLM_MODEL_NAME,
         api_key=settings.LLM_API_KEY.get_secret_value(),
         timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
+        ollama_base_url=settings.OLLAMA_BASE_URL,
     )
 
 

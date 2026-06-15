@@ -32,8 +32,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Install production dependencies first (layer-cached unless requirements.txt changes).
 COPY requirements.txt .
-RUN pip install --upgrade pip --quiet && \
-    pip install -r requirements.txt --quiet
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
 
 # Pre-download the sentence-transformers model so the image is self-contained.
 # This bakes the ~80MB model into the image and eliminates cold-start latency
@@ -72,7 +72,12 @@ ENV PYTHONUNBUFFERED=1
 # Create a non-root user and group to run the application.
 # Running as root in a container is a security anti-pattern.
 RUN groupadd --system appgroup && \
-    useradd --system --gid appgroup --no-create-home appuser
+    useradd --system --gid appgroup --create-home appuser
+
+RUN mkdir -p /home/appuser/.cache && \
+    chown -R appuser:appgroup /home/appuser
+
+ENV HOME=/home/appuser
 
 WORKDIR /app
 
@@ -98,5 +103,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 # Production server: uvicorn with a single worker.
 # For multi-worker deployments, override CMD with:
 #   uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--log-config", "/dev/null"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
