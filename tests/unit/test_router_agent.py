@@ -312,10 +312,14 @@ class TestRouterAgentRule4:
         self._check_direct("how do stock options work?")
 
     def test_tell_me_about(self) -> None:
-        self._check_direct("tell me about the history of finance")
+        router = make_router(doc_count=1)
+        d = router.decide("u1", "tell me about the history of finance")
+        assert d.route == "RETRIEVE"
 
     def test_describe(self) -> None:
-        self._check_direct("describe the difference between debt and equity")
+        router = make_router(doc_count=1)
+        d = router.decide("u1", "describe the difference between debt and equity")
+        assert d.route == "RETRIEVE"
 
     def test_when_was(self) -> None:
         self._check_direct("when was the Federal Reserve founded?")
@@ -478,8 +482,8 @@ ROUTING_FIXTURES: list[tuple[str, int, str, str]] = [
     ("explain quantitative easing", 1, "DIRECT", REASON_DIRECT_KEYWORD),
     ("how does a bond work?", 1, "DIRECT", REASON_DIRECT_KEYWORD),
     ("how do interest rates affect stocks?", 1, "DIRECT", REASON_DIRECT_KEYWORD),
-    ("tell me about the stock market", 1, "DIRECT", REASON_DIRECT_KEYWORD),
-    ("describe the difference between stocks and bonds", 1, "DIRECT", REASON_DIRECT_KEYWORD),
+    ("tell me about the stock market", 1, "RETRIEVE", REASON_AMBIGUOUS_DEFAULT),
+    ("describe the difference between stocks and bonds", 1, "RETRIEVE", REASON_AMBIGUOUS_DEFAULT),
     ("when was the SEC founded?", 1, "DIRECT", REASON_DIRECT_KEYWORD),
     ("where is the Federal Reserve headquartered?", 1, "DIRECT", REASON_DIRECT_KEYWORD),
     ("why is inflation a problem?", 1, "DIRECT", REASON_DIRECT_KEYWORD),

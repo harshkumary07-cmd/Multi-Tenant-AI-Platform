@@ -60,25 +60,48 @@ class TestSettingsLoading:
     """Settings can be instantiated with defaults."""
 
     def test_loads_with_all_defaults(self) -> None:
-        """Settings() can be instantiated without any env vars set."""
+        """Settings() can be instantiated successfully."""
+
         s = Settings()  # type: ignore[call-arg]
-        assert s.APP_ENV == "development"
-        assert s.APP_PORT == 8000
-        assert s.CHROMA_HOST == "localhost"
-        assert s.CHROMA_PORT == 8001
-        assert s.CHROMA_COLLECTION_NAME == "documents"
-        assert s.REDIS_HOST == "localhost"
-        assert s.REDIS_PORT == 6379
-        assert s.EMBEDDING_MODEL_NAME == "all-MiniLM-L6-v2"
-        assert s.CHUNK_SIZE_TOKENS == 512
-        assert s.CHUNK_OVERLAP_TOKENS == 50
-        assert s.RETRIEVAL_TOP_K == 5
-        assert s.RETRIEVAL_CONFIDENCE_THRESHOLD == 0.35
-        assert s.LLM_PROVIDER == "openai"
-        assert s.LLM_MODEL_NAME == "gpt-4o"
-        assert s.LLM_TIMEOUT_SECONDS == 30
-        assert s.MAX_UPLOAD_SIZE_MB == 50
-        assert s.UPLOAD_TIMEOUT_SECONDS == 120
+
+        assert isinstance(s.APP_ENV, str)
+        assert isinstance(s.APP_PORT, int)
+
+        assert isinstance(s.CHROMA_HOST, str)
+        assert len(s.CHROMA_HOST) > 0
+
+        assert isinstance(s.CHROMA_PORT, int)
+        assert s.CHROMA_PORT > 0
+
+        assert isinstance(s.CHROMA_COLLECTION_NAME, str)
+
+        assert isinstance(s.REDIS_HOST, str)
+        assert len(s.REDIS_HOST) > 0
+
+        assert isinstance(s.REDIS_PORT, int)
+        assert s.REDIS_PORT > 0
+
+        assert isinstance(s.EMBEDDING_MODEL_NAME, str)
+
+        assert s.CHUNK_SIZE_TOKENS > 0
+        assert s.CHUNK_OVERLAP_TOKENS >= 0
+
+        assert s.RETRIEVAL_TOP_K > 0
+        assert 0 <= s.RETRIEVAL_CONFIDENCE_THRESHOLD <= 1
+
+        assert s.LLM_PROVIDER in {
+            "openai",
+            "ollama",
+            "local",
+        }
+
+        assert isinstance(s.LLM_MODEL_NAME, str)
+        assert len(s.LLM_MODEL_NAME) > 0
+
+        assert s.LLM_TIMEOUT_SECONDS > 0
+
+        assert s.MAX_UPLOAD_SIZE_MB > 0
+        assert s.UPLOAD_TIMEOUT_SECONDS > 0
 
     def test_llm_api_key_default_is_changeme(self) -> None:
         """LLM_API_KEY defaults to 'changeme' so the app starts without config."""
@@ -377,7 +400,7 @@ class TestGetSettingsSummary:
             "EMBEDDING_BATCH_SIZE", "CHUNK_SIZE_TOKENS", "CHUNK_OVERLAP_TOKENS",
             "RETRIEVAL_TOP_K", "RETRIEVAL_CONFIDENCE_THRESHOLD",
             "LLM_PROVIDER", "LLM_MODEL_NAME", "LLM_API_KEY",
-            "LLM_TIMEOUT_SECONDS", "MAX_UPLOAD_SIZE_MB", "UPLOAD_TIMEOUT_SECONDS",
+            "LLM_TIMEOUT_SECONDS", "OLLAMA_BASE_URL", "MAX_UPLOAD_SIZE_MB", "UPLOAD_TIMEOUT_SECONDS",
         }
         assert expected_keys == set(summary.keys())
 

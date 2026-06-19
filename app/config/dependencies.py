@@ -28,7 +28,7 @@ Pattern -- test override:
     app.dependency_overrides.clear()
 """
 
-from fastapi import Request, Header
+from fastapi import Header, Request
 
 from app.agents.router_agent import RouterAgent
 from app.cache.cache_service import CacheService
@@ -72,7 +72,7 @@ def get_current_user_id(
     TenantContextMiddleware sets request.state.user_id before any route
     handler runs. This dependency surfaces it with a clean signature.
     """
-    return request.state.user_id
+    return str(request.state.user_id)
 
 # ---------------------------------------------------------------------------
 # Infrastructure providers
