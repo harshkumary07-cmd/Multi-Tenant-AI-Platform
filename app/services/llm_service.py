@@ -542,9 +542,11 @@ def create_llm_provider(
     }
 
     if provider_name not in providers:
+        supported = sorted([*providers.keys(), "ollama"])
+
         raise LLMProviderError(
             f"Unknown LLM provider '{provider_name}'. "
-            f"Supported providers: {sorted([*providers.keys(), "ollama"])}. "
+            f"Supported providers: {supported}. "
             "Check the LLM_PROVIDER setting."
         )
 
